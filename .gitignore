@@ -1,0 +1,5 @@
+/flatrun
+/dist/
+/coverage.out
+/coverage.html
+*.test
