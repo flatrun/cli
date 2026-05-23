@@ -19,6 +19,16 @@ make qa
 
 CI runs formatting, vet, tests, golangci-lint, and multi-platform builds for Linux and macOS on amd64/arm64.
 
+## Releases
+
+Releases are created from the GitHub Actions **Release** workflow. Before running it:
+
+1. Update `VERSION`.
+2. Add the matching entry to `CHANGELOG.md`.
+3. Run the workflow manually with the same version value.
+
+The workflow validates that the input version, `VERSION`, and `CHANGELOG.md` agree before calling `whilesmart/workflows/go/release@main`.
+
 ## Configuration
 
 Use environment variables in CI:

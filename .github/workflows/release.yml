@@ -1,10 +1,12 @@
 name: Release
 
+run-name: Release ${{ inputs.version || github.ref_name }}
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 0.1.0)'
+        description: 'Version to release. Must match VERSION and CHANGELOG.md.'
         required: true
   push:
     tags:
@@ -27,7 +29,7 @@ jobs:
         run: |
           FILE_VERSION="$(cat VERSION)"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RELEASE_VERSION="${{ github.event.inputs.version }}"
+            RELEASE_VERSION="${{ inputs.version }}"
           else
             RELEASE_VERSION="${GITHUB_REF_NAME#v}"
           fi
@@ -37,12 +39,22 @@ jobs:
           fi
           echo "Version validated: $FILE_VERSION"
 
+      - name: Validate changelog
+        run: |
+          FILE_VERSION="$(cat VERSION)"
+          VERSION_PATTERN="${FILE_VERSION//./\\.}"
+          if ! grep -Eq "^## \\[?v?${VERSION_PATTERN}\\]?" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md must contain a release heading for $FILE_VERSION"
+            exit 1
+          fi
+          echo "Changelog entry found for $FILE_VERSION"
+
       - name: Create Release
         uses: whilesmart/workflows/go/release@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           binary_name: flatrun
           build_path: ./cmd/flatrun
-          version: ${{ github.event.inputs.version || steps.version.outputs.version }}
+          version: ${{ inputs.version || steps.version.outputs.version }}
           platforms: '["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"]'
-          ldflags: "-X github.com/flatrun/cli/internal/command.Version=${{ github.event.inputs.version || steps.version.outputs.version }} -X github.com/flatrun/cli/internal/command.BuildTime=$(date -u +%Y-%m-%d_%H:%M:%S) -X github.com/flatrun/cli/internal/command.GitCommit=${{ github.sha }}"
+          ldflags: "-X github.com/flatrun/cli/internal/command.Version=${{ inputs.version || steps.version.outputs.version }} -X github.com/flatrun/cli/internal/command.BuildTime=$(date -u +%Y-%m-%d_%H:%M:%S) -X github.com/flatrun/cli/internal/command.GitCommit=${{ github.sha }}"

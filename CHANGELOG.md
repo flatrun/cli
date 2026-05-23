@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to the FlatRun CLI are documented in this file.
+
+## [0.1.0] - 2026-05-23
+
+### Added
+
+- Initial standalone `flatrun` CLI for FlatRun automation and operator workflows.
+- Profile-based configuration stored in `~/.flatrun/config.json`.
+- Deployment commands for list, info/get, create, delete, runtime operations, deploy, pull, images, containers, and services.
+- Image and container command families.
+- Raw API bridge via `flatrun api get|post|put|delete`.
+- Human-readable table output by default, with `--json` for raw machine-readable responses.
+- `--verbose` diagnostics for request method, URL, response status, and response body size.
+- Manual GitHub release workflow for multi-platform CLI binaries.
+
+### Changed
+
+- `deployment info` is the preferred human-facing detail command; `deployment get` remains available as an alias.
+- Deployment list and info output include multi-domain, SSL, certificate, proxy, healthcheck, database, and service details where the API returns them.
