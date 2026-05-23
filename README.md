@@ -98,4 +98,4 @@ Check API connectivity:
 flatrun health
 ```
 
-See [docs/COMMAND_MAP.md](docs/COMMAND_MAP.md) for the CLI coverage map.
+See [docs](docs/README.md) for guides and command reference.
