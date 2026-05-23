@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -375,6 +376,211 @@ func TestDeploymentDeleteCallsAPIWithConfirmation(t *testing.T) {
 	}
 }
 
+func TestDeploymentListPrintsTableByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/deployments" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"deployments":[{"name":"api","status":"running","created_at":"2026-05-23T01:02:03Z","services":[{"name":"app"}],"metadata":{"networking":{"domain":"api.example.com"},"domains":[{"domain":"api.example.com"},{"domain":"admin.example.com"}]}}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"NAME", "api", "running", "api.example.com,admin.example.com", "2026-05-23 01:02"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), `"name"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentListPrintsJSONWhenRequested(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"deployments":[{"name":"api"}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "list", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"name":"api"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentInfoPrintsDeploymentDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/deployments/api" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"deployment":{"name":"api","status":"running","services":[{"name":"app","container_id":"abc123","image":"ghcr.io/acme/api:latest","status":"running","health":"healthy","ports":["80"]}],"metadata":{"networking":{"expose":true,"domain":"api.example.com","container_port":80,"protocol":"http","proxy_type":"http"},"ssl":{"enabled":true,"auto_cert":true},"healthcheck":{"path":"/health","interval":"30s"},"domains":[{"domain":"api.example.com"},{"domain":"admin.example.com"}],"databases":[{"id":"primary","alias":"primary","type":"mysql","mode":"shared","is_shared":true}],"credential_id":"cred123"}},"proxy_status":{"exposed":true,"domain":"api.example.com","domains":["api.example.com","admin.example.com"],"virtual_host_exists":true,"ssl_enabled":true,"certificate_exists":true,"certificate":{"domain":"api.example.com","issuer":"E8","days_left":34,"status":"valid","auto_renew":true}}}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "info", "api"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"Name:", "api", "Domains:", "api.example.com,admin.example.com", "SSL:", "enabled, auto-cert, certificate present", "Certificate:", "valid", "34 days left", "Healthcheck:", "/health every 30s", "Databases:", "primary (mysql, shared)", "SERVICE", "abc123", "healthy"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("output missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestDeploymentGetStillWorksAsAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/deployments/api" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"deployment":{"name":"api","status":"running","services":[]}}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "get", "api"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Name:") {
+		t.Fatalf("stdout = %s", stdout.String())
+	}
+}
+
+func TestImageListPrintsTableByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/images" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"images":[{"id":"abc123","tags":["ghcr.io/acme/api:latest"],"size":10485760,"created":"2026-05-23 01:02:03 +0100 CET","containers":2}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"image", "list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"IMAGE ID", "abc123", "ghcr.io/acme/api:latest", "10.0 MB", "2"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), `"images"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestContainerListPrintsTableByDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/containers" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"containers":[{"id":"abc123","name":"api","image":"ghcr.io/acme/api:latest","state":"running","status":"Up 1 hour","ports":["0.0.0.0:80->80/tcp"]}]}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"container", "list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"CONTAINER ID", "abc123", "api", "running", "0.0.0.0:80->80/tcp"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestRenderDeploymentGetPrintsServiceTable(t *testing.T) {
+	var stdout bytes.Buffer
+
+	err := renderDeploymentGet(&stdout, []byte(`{"deployment":{"name":"api","status":"running","services":[{"name":"app","container_id":"abc123","image":"ghcr.io/acme/api:latest","status":"running","health":"healthy","ports":["80"]}]}}`))
+	if err != nil {
+		t.Fatalf("renderDeploymentGet returned error: %v", err)
+	}
+	for _, want := range []string{"Name:", "api", "SERVICE", "CONTAINER", "abc123", "healthy", "80"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestRenderDeploymentImagesPrintsImageTable(t *testing.T) {
+	var stdout bytes.Buffer
+
+	err := renderDeploymentImages(&stdout, []byte(`{"images":[{"service":"app","image":"ghcr.io/acme/api:latest","is_latest":true,"is_build":false}]}`))
+	if err != nil {
+		t.Fatalf("renderDeploymentImages returned error: %v", err)
+	}
+	for _, want := range []string{"SERVICE", "app", "ghcr.io/acme/api:latest", "yes", "no"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestRenderDeploymentContainersPrintsStatsTable(t *testing.T) {
+	var stdout bytes.Buffer
+
+	err := renderDeploymentContainers(&stdout, []byte(`{"services":[{"container_id":"abc123","name":"api","cpu_percent":1.25,"memory_usage":1048576,"memory_percent":2.5,"pids":7}]}`))
+	if err != nil {
+		t.Fatalf("renderDeploymentContainers returned error: %v", err)
+	}
+	for _, want := range []string{"CONTAINER ID", "abc123", "api", "1.25%", "1.0 MB", "2.50%", "7"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestRenderDeploymentServicesPrintsFlexibleServiceTable(t *testing.T) {
+	var stdout bytes.Buffer
+
+	err := renderDeploymentServices(&stdout, []byte(`{"services":[{"name":"app","image":"ghcr.io/acme/api:latest","status":"running","health":"healthy"}]}`))
+	if err != nil {
+		t.Fatalf("renderDeploymentServices returned error: %v", err)
+	}
+	for _, want := range []string{"SERVICE", "app", "ghcr.io/acme/api:latest", "running", "healthy"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
 func TestAPIPostSendsData(t *testing.T) {
 	var payload map[string]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -402,6 +608,34 @@ func TestAPIPostSendsData(t *testing.T) {
 	}
 	if payload["container"] != "mysql" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestVerbosePrintsRequestDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"health", "--verbose"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"-> GET " + server.URL + "/api/health", "<- 200 200 OK"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("verbose output missing %q: %s", want, stderr.String())
+		}
+	}
+	if !regexp.MustCompile(`(?m)^<- body [0-9]+ bytes$`).MatchString(stderr.String()) {
+		t.Fatalf("verbose output missing body size: %s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "secret") {
+		t.Fatalf("verbose output leaked token: %s", stderr.String())
 	}
 }
 
@@ -469,6 +703,62 @@ func TestPrintResponsePrintsTopLevelArrayWhenNoFallback(t *testing.T) {
 
 	if strings.TrimSpace(stdout.String()) != `[{"name":"api"}]` {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestHumanBytesFormatsBoundaries(t *testing.T) {
+	tests := map[int64]string{
+		512:                  "512 B",
+		1024:                 "1.0 KB",
+		1048576:              "1.0 MB",
+		1073741824:           "1.0 GB",
+		1099511627776:        "1.0 TB",
+		1125899906842624 * 2: "2.0 PB",
+	}
+
+	for input, want := range tests {
+		if got := humanBytes(input); got != want {
+			t.Fatalf("humanBytes(%d) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestDeploymentDomainsFallsBackToLegacyDomain(t *testing.T) {
+	item := deploymentListItem{}
+	item.Metadata.Networking.Domain = "api.example.com"
+
+	if got := deploymentDomains(item); got != "api.example.com" {
+		t.Fatalf("deploymentDomains = %q", got)
+	}
+}
+
+func TestDeploymentDomainsDeduplicatesConfiguredDomains(t *testing.T) {
+	item := deploymentListItem{}
+	item.Metadata.Networking.Domain = "legacy.example.com"
+	item.Metadata.Domains = []struct {
+		Domain string `json:"domain"`
+	}{
+		{Domain: "api.example.com"},
+		{Domain: "api.example.com"},
+		{Domain: "admin.example.com"},
+	}
+
+	if got := deploymentDomains(item); got != "api.example.com,admin.example.com" {
+		t.Fatalf("deploymentDomains = %q", got)
+	}
+}
+
+func TestShortDockerTimeParsesDockerAndRFC3339Formats(t *testing.T) {
+	tests := map[string]string{
+		"2026-05-23 01:02:03 +0100 CET": "2026-05-23 01:02:03",
+		"2026-05-23T01:02:03Z":          "2026-05-23 01:02",
+		"not-a-time":                    "not-a-time",
+	}
+
+	for input, want := range tests {
+		if got := shortDockerTime(input); got != want {
+			t.Fatalf("shortDockerTime(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 

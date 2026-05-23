@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/flatrun/cli/internal/config"
@@ -43,17 +44,136 @@ type globalOptions struct {
 	Timeout  time.Duration
 	Insecure bool
 	JSON     bool
+	Verbose  bool
+	debugOut io.Writer
 }
 
 type clientCommand struct {
 	name        string
 	usage       string
-	rawJSON     bool
 	successMsg  string
 	positionals int
 	valueFlags  []string
 	flags       func(*flag.FlagSet)
 	run         func(context.Context, *flatrun.Client, []string) ([]byte, error)
+	render      func(io.Writer, []byte) error
+}
+
+type deploymentListItem struct {
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	Services  []struct {
+		Name string `json:"name"`
+	} `json:"services"`
+	Metadata struct {
+		Networking struct {
+			Domain string `json:"domain"`
+		} `json:"networking"`
+		Domains []struct {
+			Domain string `json:"domain"`
+		} `json:"domains"`
+	} `json:"metadata"`
+}
+
+type deploymentServiceItem struct {
+	Name        string   `json:"name"`
+	ContainerID string   `json:"container_id"`
+	Image       string   `json:"image"`
+	Status      string   `json:"status"`
+	Health      string   `json:"health"`
+	Ports       []string `json:"ports"`
+}
+
+type imageListItem struct {
+	ID         string   `json:"id"`
+	Tags       []string `json:"tags"`
+	Size       int64    `json:"size"`
+	Created    string   `json:"created"`
+	Containers int      `json:"containers"`
+}
+
+type containerListItem struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Image  string   `json:"image"`
+	State  string   `json:"state"`
+	Status string   `json:"status"`
+	Ports  []string `json:"ports"`
+}
+
+type deploymentImageItem struct {
+	Service  string `json:"service"`
+	Image    string `json:"image"`
+	IsLatest bool   `json:"is_latest"`
+	IsBuild  bool   `json:"is_build"`
+}
+
+type deploymentContainerItem struct {
+	ContainerID   string  `json:"container_id"`
+	Name          string  `json:"name"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	MemoryUsage   int64   `json:"memory_usage"`
+	MemoryPercent float64 `json:"memory_percent"`
+	PIDs          int     `json:"pids"`
+}
+
+type deploymentInfo struct {
+	Name     string                  `json:"name"`
+	Status   string                  `json:"status"`
+	Services []deploymentServiceItem `json:"services"`
+	Metadata struct {
+		Networking struct {
+			Domain        string `json:"domain"`
+			Expose        bool   `json:"expose"`
+			ContainerPort int    `json:"container_port"`
+			Protocol      string `json:"protocol"`
+			ProxyType     string `json:"proxy_type"`
+		} `json:"networking"`
+		SSL struct {
+			Enabled  bool `json:"enabled"`
+			AutoCert bool `json:"auto_cert"`
+		} `json:"ssl"`
+		Healthcheck struct {
+			Path     string `json:"path"`
+			Interval string `json:"interval"`
+		} `json:"healthcheck"`
+		Domains []struct {
+			ID            string `json:"id"`
+			Service       string `json:"service"`
+			ContainerPort int    `json:"container_port"`
+			Domain        string `json:"domain"`
+			SSL           struct {
+				Enabled  bool `json:"enabled"`
+				AutoCert bool `json:"auto_cert"`
+			} `json:"ssl"`
+		} `json:"domains"`
+		Databases []struct {
+			ID       string `json:"id"`
+			Alias    string `json:"alias"`
+			Type     string `json:"type"`
+			Mode     string `json:"mode"`
+			IsShared bool   `json:"is_shared"`
+		} `json:"databases"`
+		CredentialID string `json:"credential_id"`
+	} `json:"metadata"`
+}
+
+type proxyStatusInfo struct {
+	Exposed           bool     `json:"exposed"`
+	Domain            string   `json:"domain"`
+	Domains           []string `json:"domains"`
+	VirtualHostExists bool     `json:"virtual_host_exists"`
+	SSLEnabled        bool     `json:"ssl_enabled"`
+	CertificateExists bool     `json:"certificate_exists"`
+	Certificate       struct {
+		Domain    string `json:"domain"`
+		Issuer    string `json:"issuer"`
+		NotAfter  string `json:"not_after"`
+		DaysLeft  int    `json:"days_left"`
+		Status    string `json:"status"`
+		AutoRenew bool   `json:"auto_renew"`
+	} `json:"certificate"`
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
@@ -105,7 +225,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  version             Print CLI version")
 }
 
-func globalFlagSet(name string, opts *globalOptions, output io.Writer) *flag.FlagSet {
+func globalFlagSet(name string, opts *globalOptions, output, debugOut io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(output)
 	fs.StringVar(&opts.Profile, "profile", "", "Profile name")
@@ -114,6 +234,8 @@ func globalFlagSet(name string, opts *globalOptions, output io.Writer) *flag.Fla
 	fs.DurationVar(&opts.Timeout, "timeout", 10*time.Minute, "Request timeout")
 	fs.BoolVar(&opts.Insecure, "insecure-skip-verify", false, "Skip TLS certificate verification")
 	fs.BoolVar(&opts.JSON, "json", false, "Print raw JSON response")
+	fs.BoolVar(&opts.Verbose, "verbose", false, "Print request and response diagnostics")
+	opts.debugOut = debugOut
 	return fs
 }
 
@@ -139,7 +261,11 @@ func clientFromOptions(opts globalOptions) (*flatrun.Client, error) {
 	if profile.Token == "" {
 		return nil, errors.New("missing --token or FLATRUN_TOKEN")
 	}
-	return flatrun.New(profile.URL, profile.Token, opts.Timeout, opts.Insecure), nil
+	client := flatrun.New(profile.URL, profile.Token, opts.Timeout, opts.Insecure)
+	if opts.Verbose {
+		client.Debug = opts.debugOut
+	}
+	return client, nil
 }
 
 func isCredentialError(err error) bool {
@@ -157,8 +283,8 @@ func parseFlagSet(fs *flag.FlagSet, args []string) (int, bool) {
 }
 
 func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer) int {
-	opts := globalOptions{JSON: cmd.rawJSON}
-	fs := globalFlagSet(cmd.name, &opts, stderr)
+	opts := globalOptions{}
+	fs := globalFlagSet(cmd.name, &opts, stderr, stderr)
 	if cmd.flags != nil {
 		cmd.flags(fs)
 	}
@@ -180,7 +306,18 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
-	printResponse(stdout, opts.JSON, data, cmd.successMsg)
+	if opts.JSON {
+		printResponse(stdout, true, data, "")
+		return 0
+	}
+	if cmd.render != nil {
+		if err := cmd.render(stdout, data); err != nil {
+			fmt.Fprintln(stderr, "Error:", err)
+			return 1
+		}
+		return 0
+	}
+	printResponse(stdout, false, data, cmd.successMsg)
 	return 0
 }
 
@@ -366,7 +503,7 @@ func nextProfileName(profiles map[string]config.Profile) string {
 
 func runHealth(args []string, stdout, stderr io.Writer) int {
 	opts := globalOptions{}
-	fs := globalFlagSet("health", &opts, stderr)
+	fs := globalFlagSet("health", &opts, stderr, stderr)
 	if code, ok := parseFlagSet(fs, interspersedFlags(args, globalValueFlags())); !ok {
 		return code
 	}
@@ -386,15 +523,15 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment <list|get|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
+		fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
 		return 2
 	}
 
 	switch args[0] {
 	case "list":
 		return runDeploymentList(args[1:], stdout, stderr)
-	case "get":
-		return runDeploymentGet(args[1:], stdout, stderr)
+	case "info", "get":
+		return runDeploymentInfo(args[0], args[1:], stdout, stderr)
 	case "create":
 		return runDeploymentCreate(args[1:], stdout, stderr)
 	case "delete":
@@ -417,23 +554,23 @@ func runDeploymentList(args []string, stdout, stderr io.Writer) int {
 	return runClientCommand(clientCommand{
 		name:        "deployment list",
 		usage:       "Usage: flatrun deployment list",
-		rawJSON:     true,
 		positionals: 0,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ListDeployments(ctx)
 		},
+		render: renderDeploymentList,
 	}, args, stdout, stderr)
 }
 
-func runDeploymentGet(args []string, stdout, stderr io.Writer) int {
+func runDeploymentInfo(command string, args []string, stdout, stderr io.Writer) int {
 	return runClientCommand(clientCommand{
-		name:        "deployment get",
-		usage:       "Usage: flatrun deployment get NAME",
-		rawJSON:     true,
+		name:        "deployment " + command,
+		usage:       "Usage: flatrun deployment " + command + " NAME",
 		positionals: 1,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.GetDeployment(ctx, args[0])
 		},
+		render: renderDeploymentGet,
 	}, args, stdout, stderr)
 }
 
@@ -445,7 +582,7 @@ func runDeploymentCreate(args []string, stdout, stderr io.Writer) int {
 	hostPort := ""
 	autoStart := false
 
-	fs := globalFlagSet("deployment create", &opts, stderr)
+	fs := globalFlagSet("deployment create", &opts, stderr, stderr)
 	fs.StringVar(&image, "image", "", "Container image to deploy")
 	fs.StringVar(&templateID, "template", "", "Template ID")
 	fs.IntVar(&containerPort, "port", 0, "Container port")
@@ -500,7 +637,7 @@ func runDeploymentDelete(args []string, stdout, stderr io.Writer) int {
 	yes := false
 	confirm := ""
 
-	fs := globalFlagSet("deployment delete", &opts, stderr)
+	fs := globalFlagSet("deployment delete", &opts, stderr, stderr)
 	fs.BoolVar(&deleteSSL, "delete-ssl", deleteSSL, "Delete SSL certificates")
 	fs.BoolVar(&deleteDatabase, "delete-database", deleteDatabase, "Delete shared database resources")
 	fs.BoolVar(&deleteVhost, "delete-vhost", deleteVhost, "Delete virtual host/proxy config")
@@ -565,10 +702,16 @@ func runDeploymentPull(args []string, stdout, stderr io.Writer) int {
 }
 
 func runDeploymentRead(kind string, args []string, stdout, stderr io.Writer) int {
+	render := renderDeploymentServices
+	if kind == "images" {
+		render = renderDeploymentImages
+	}
+	if kind == "containers" {
+		render = renderDeploymentContainers
+	}
 	return runClientCommand(clientCommand{
 		name:        "deployment " + kind,
 		usage:       fmt.Sprintf("Usage: flatrun deployment %s NAME", kind),
-		rawJSON:     true,
 		positionals: 1,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			switch kind {
@@ -582,6 +725,7 @@ func runDeploymentRead(kind string, args []string, stdout, stderr io.Writer) int
 				return nil, fmt.Errorf("unsupported deployment read: %s", kind)
 			}
 		},
+		render: render,
 	}, args, stdout, stderr)
 }
 
@@ -591,7 +735,7 @@ func runDeploymentDeploy(args []string, stdout, stderr io.Writer) int {
 	pull := true
 	onlyLatest := false
 
-	fs := globalFlagSet("deployment deploy", &opts, stderr)
+	fs := globalFlagSet("deployment deploy", &opts, stderr, stderr)
 	fs.StringVar(&operation, "operation", operation, "Operation after pull: restart, rebuild, or start")
 	fs.BoolVar(&pull, "pull", pull, "Pull images before running the operation")
 	fs.BoolVar(&onlyLatest, "only-latest", onlyLatest, "Only pull images tagged latest")
@@ -648,11 +792,11 @@ func runImageList(args []string, stdout, stderr io.Writer) int {
 	return runClientCommand(clientCommand{
 		name:        "image list",
 		usage:       "Usage: flatrun image list",
-		rawJSON:     true,
 		positionals: 0,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ListImages(ctx)
 		},
+		render: renderImageList,
 	}, args, stdout, stderr)
 }
 
@@ -708,11 +852,11 @@ func runContainerList(args []string, stdout, stderr io.Writer) int {
 	return runClientCommand(clientCommand{
 		name:        "container list",
 		usage:       "Usage: flatrun container list",
-		rawJSON:     true,
 		positionals: 0,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ListContainers(ctx)
 		},
+		render: renderContainerList,
 	}, args, stdout, stderr)
 }
 
@@ -764,7 +908,7 @@ func runAPI(args []string, stdout, stderr io.Writer) int {
 func runRawAPI(method string, args []string, stdout, stderr io.Writer) int {
 	opts := globalOptions{JSON: true}
 	dataArg := ""
-	fs := globalFlagSet("api "+strings.ToLower(method), &opts, stderr)
+	fs := globalFlagSet("api "+strings.ToLower(method), &opts, stderr, stderr)
 	fs.StringVar(&dataArg, "data", "", "JSON request body")
 	if code, ok := parseFlagSet(fs, interspersedFlags(args, globalValueFlags("data"))); !ok {
 		return code
@@ -835,6 +979,328 @@ func printResponse(stdout io.Writer, rawJSON bool, data []byte, fallback string)
 		return
 	}
 	fmt.Fprintln(stdout, fallback)
+}
+
+func renderDeploymentList(stdout io.Writer, data []byte) error {
+	var response struct {
+		Deployments []deploymentListItem `json:"deployments"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	tableRows := make([][]string, 0, len(response.Deployments))
+	for _, item := range response.Deployments {
+		tableRows = append(tableRows, []string{item.Name, item.Status, deploymentDomains(item), fmt.Sprintf("%d", len(item.Services)), shortTime(item.CreatedAt)})
+	}
+	writeTable(stdout, []string{"NAME", "STATUS", "DOMAIN", "SERVICES", "CREATED"}, tableRows)
+	return nil
+}
+
+func renderDeploymentGet(stdout io.Writer, data []byte) error {
+	var response struct {
+		Deployment  deploymentInfo  `json:"deployment"`
+		ProxyStatus proxyStatusInfo `json:"proxy_status"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	renderDeploymentSummary(stdout, response.Deployment, response.ProxyStatus)
+
+	tableRows := make([][]string, 0, len(response.Deployment.Services))
+	for _, item := range response.Deployment.Services {
+		tableRows = append(tableRows, []string{item.Name, item.ContainerID, item.Image, item.Status, item.Health, strings.Join(item.Ports, ",")})
+	}
+	fmt.Fprintln(stdout)
+	writeTable(stdout, []string{"SERVICE", "CONTAINER", "IMAGE", "STATUS", "HEALTH", "PORTS"}, tableRows)
+	return nil
+}
+
+func renderImageList(stdout io.Writer, data []byte) error {
+	var response struct {
+		Images []imageListItem `json:"images"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	tableRows := make([][]string, 0, len(response.Images))
+	for _, item := range response.Images {
+		tableRows = append(tableRows, []string{item.ID, strings.Join(item.Tags, ","), humanBytes(item.Size), fmt.Sprintf("%d", item.Containers), shortDockerTime(item.Created)})
+	}
+	writeTable(stdout, []string{"IMAGE ID", "TAGS", "SIZE", "CONTAINERS", "CREATED"}, tableRows)
+	return nil
+}
+
+func renderContainerList(stdout io.Writer, data []byte) error {
+	var response struct {
+		Containers []containerListItem `json:"containers"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	tableRows := make([][]string, 0, len(response.Containers))
+	for _, item := range response.Containers {
+		tableRows = append(tableRows, []string{item.ID, item.Name, item.Image, item.State, item.Status, strings.Join(item.Ports, ",")})
+	}
+	writeTable(stdout, []string{"CONTAINER ID", "NAME", "IMAGE", "STATE", "STATUS", "PORTS"}, tableRows)
+	return nil
+}
+
+func renderDeploymentImages(stdout io.Writer, data []byte) error {
+	var response struct {
+		Images []deploymentImageItem `json:"images"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	tableRows := make([][]string, 0, len(response.Images))
+	for _, item := range response.Images {
+		tableRows = append(tableRows, []string{item.Service, item.Image, boolText(item.IsLatest), boolText(item.IsBuild)})
+	}
+	writeTable(stdout, []string{"SERVICE", "IMAGE", "LATEST", "BUILD"}, tableRows)
+	return nil
+}
+
+func renderDeploymentContainers(stdout io.Writer, data []byte) error {
+	var response struct {
+		Services []deploymentContainerItem `json:"services"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	tableRows := make([][]string, 0, len(response.Services))
+	for _, item := range response.Services {
+		tableRows = append(tableRows, []string{item.ContainerID, item.Name, fmt.Sprintf("%.2f%%", item.CPUPercent), humanBytes(item.MemoryUsage), fmt.Sprintf("%.2f%%", item.MemoryPercent), fmt.Sprintf("%d", item.PIDs)})
+	}
+	writeTable(stdout, []string{"CONTAINER ID", "NAME", "CPU", "MEMORY", "MEMORY %", "PIDS"}, tableRows)
+	return nil
+}
+
+func renderDeploymentServices(stdout io.Writer, data []byte) error {
+	var response struct {
+		Services []map[string]any `json:"services"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	tableRows := make([][]string, 0, len(response.Services))
+	for _, service := range response.Services {
+		tableRows = append(tableRows, []string{
+			stringValue(service["name"]),
+			stringValue(service["image"]),
+			stringValue(service["status"]),
+			stringValue(service["health"]),
+		})
+	}
+	writeTable(stdout, []string{"SERVICE", "IMAGE", "STATUS", "HEALTH"}, tableRows)
+	return nil
+}
+
+func renderDeploymentSummary(stdout io.Writer, deployment deploymentInfo, proxy proxyStatusInfo) {
+	if deployment.Name == "" {
+		return
+	}
+	writeKeyValues(stdout, [][]string{
+		{"Name", deployment.Name},
+		{"Status", deployment.Status},
+		{"Exposed", boolText(deployment.Metadata.Networking.Expose || proxy.Exposed)},
+		{"Domains", infoDomains(deployment, proxy)},
+		{"Container Port", intText(deployment.Metadata.Networking.ContainerPort)},
+		{"Protocol", deployment.Metadata.Networking.Protocol},
+		{"Proxy Type", deployment.Metadata.Networking.ProxyType},
+		{"Virtual Host", boolText(proxy.VirtualHostExists)},
+		{"SSL", sslSummary(deployment, proxy)},
+		{"Certificate", certificateSummary(proxy)},
+		{"Healthcheck", healthcheckSummary(deployment)},
+		{"Credential", deployment.Metadata.CredentialID},
+		{"Databases", databaseSummary(deployment)},
+	})
+}
+
+func writeKeyValues(stdout io.Writer, pairs [][]string) {
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	for _, pair := range pairs {
+		if len(pair) != 2 || pair[1] == "" {
+			continue
+		}
+		fmt.Fprintf(tw, "%s:\t%s\n", pair[0], pair[1])
+	}
+	_ = tw.Flush()
+}
+
+func infoDomains(deployment deploymentInfo, proxy proxyStatusInfo) string {
+	domains := make([]string, 0, len(deployment.Metadata.Domains)+len(proxy.Domains)+1)
+	seen := map[string]bool{}
+	add := func(domain string) {
+		if domain == "" || seen[domain] {
+			return
+		}
+		seen[domain] = true
+		domains = append(domains, domain)
+	}
+	for _, domain := range deployment.Metadata.Domains {
+		add(domain.Domain)
+	}
+	for _, domain := range proxy.Domains {
+		add(domain)
+	}
+	add(proxy.Domain)
+	add(deployment.Metadata.Networking.Domain)
+	return strings.Join(domains, ",")
+}
+
+func sslSummary(deployment deploymentInfo, proxy proxyStatusInfo) string {
+	enabled := deployment.Metadata.SSL.Enabled || proxy.SSLEnabled
+	if !enabled {
+		return "disabled"
+	}
+	parts := []string{"enabled"}
+	if deployment.Metadata.SSL.AutoCert {
+		parts = append(parts, "auto-cert")
+	}
+	if proxy.CertificateExists {
+		parts = append(parts, "certificate present")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func certificateSummary(proxy proxyStatusInfo) string {
+	cert := proxy.Certificate
+	if cert.Domain == "" && !proxy.CertificateExists {
+		return ""
+	}
+	parts := []string{}
+	if cert.Domain != "" {
+		parts = append(parts, cert.Domain)
+	}
+	if cert.Status != "" {
+		parts = append(parts, cert.Status)
+	}
+	if cert.DaysLeft != 0 {
+		parts = append(parts, fmt.Sprintf("%d days left", cert.DaysLeft))
+	}
+	if cert.Issuer != "" {
+		parts = append(parts, "issuer "+cert.Issuer)
+	}
+	if cert.AutoRenew {
+		parts = append(parts, "auto-renew")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func healthcheckSummary(deployment deploymentInfo) string {
+	if deployment.Metadata.Healthcheck.Path == "" && deployment.Metadata.Healthcheck.Interval == "" {
+		return ""
+	}
+	if deployment.Metadata.Healthcheck.Interval == "" {
+		return deployment.Metadata.Healthcheck.Path
+	}
+	if deployment.Metadata.Healthcheck.Path == "" {
+		return deployment.Metadata.Healthcheck.Interval
+	}
+	return deployment.Metadata.Healthcheck.Path + " every " + deployment.Metadata.Healthcheck.Interval
+}
+
+func databaseSummary(deployment deploymentInfo) string {
+	items := make([]string, 0, len(deployment.Metadata.Databases))
+	for _, database := range deployment.Metadata.Databases {
+		name := database.Alias
+		if name == "" {
+			name = database.ID
+		}
+		if database.Type != "" {
+			name += " (" + database.Type
+			if database.Mode != "" {
+				name += ", " + database.Mode
+			}
+			if database.IsShared && database.Mode != "shared" {
+				name += ", shared"
+			}
+			name += ")"
+		}
+		items = append(items, name)
+	}
+	return strings.Join(items, ",")
+}
+
+func writeTable(stdout io.Writer, headers []string, tableRows [][]string) {
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	for _, row := range tableRows {
+		fmt.Fprintln(tw, strings.Join(row, "\t"))
+	}
+	_ = tw.Flush()
+}
+
+func boolText(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func intText(value int) string {
+	if value == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", value)
+}
+
+func deploymentDomains(item deploymentListItem) string {
+	domains := make([]string, 0, len(item.Metadata.Domains))
+	seen := map[string]bool{}
+	for _, domain := range item.Metadata.Domains {
+		if domain.Domain == "" || seen[domain.Domain] {
+			continue
+		}
+		seen[domain.Domain] = true
+		domains = append(domains, domain.Domain)
+	}
+	if len(domains) > 0 {
+		return strings.Join(domains, ",")
+	}
+	return item.Metadata.Networking.Domain
+}
+
+func humanBytes(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	value := float64(size)
+	for _, suffix := range []string{"KB", "MB", "GB", "TB"} {
+		value /= unit
+		if value < unit {
+			return fmt.Sprintf("%.1f %s", value, suffix)
+		}
+	}
+	return fmt.Sprintf("%.1f PB", value/unit)
+}
+
+func shortTime(value string) string {
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed.Format("2006-01-02 15:04")
+	}
+	return value
+}
+
+func shortDockerTime(value string) string {
+	if parsed, err := time.Parse("2006-01-02 15:04:05 -0700 MST", value); err == nil {
+		return parsed.Format("2006-01-02 15:04:05")
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed.Format("2006-01-02 15:04")
+	}
+	return value
+}
+
+func stringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return fmt.Sprint(value)
 }
 
 func valueFlags(names ...string) map[string]bool {

@@ -6,7 +6,7 @@ The CLI should eventually cover every action exposed by the FlatRun UI. Commands
 
 | UI/API area | CLI commands |
 | --- | --- |
-| Deployment lifecycle | `deployment create`, `deployment delete`, `deployment list`, `deployment get` |
+| Deployment lifecycle | `deployment create`, `deployment delete`, `deployment list`, `deployment info`, `deployment get` |
 | Deployment runtime | `deployment start`, `deployment stop`, `deployment restart`, `deployment rebuild`, `deployment deploy` |
 | Deployment multi-image/service/container visibility | `deployment images`, `deployment services`, `deployment containers` |
 | Deployment image pull | `deployment pull` pulls all images in the deployment compose stack. Use `deployment images` first to see service-to-image mapping. |

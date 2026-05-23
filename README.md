@@ -57,6 +57,7 @@ flatrun deployment create my-api \
 Manage an existing deployment:
 
 ```bash
+flatrun deployment info my-api
 flatrun deployment images my-api
 flatrun deployment containers my-api
 flatrun deployment services my-api
