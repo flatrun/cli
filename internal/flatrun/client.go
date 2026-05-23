@@ -85,6 +85,16 @@ func (c *Client) GetDeployment(ctx context.Context, name string) ([]byte, error)
 	return c.Do(ctx, http.MethodGet, "/deployments/"+url.PathEscape(name), nil)
 }
 
+func (c *Client) GetDeploymentCompose(ctx context.Context, name string) ([]byte, error) {
+	return c.Do(ctx, http.MethodGet, "/deployments/"+url.PathEscape(name)+"/compose", nil)
+}
+
+func (c *Client) UpdateDeploymentCompose(ctx context.Context, name, composeContent string) ([]byte, error) {
+	return c.Do(ctx, http.MethodPut, "/deployments/"+url.PathEscape(name), map[string]string{
+		"compose_content": composeContent,
+	})
+}
+
 type DeployRequest struct {
 	Action     string `json:"action"`
 	Pull       bool   `json:"pull"`

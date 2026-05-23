@@ -472,6 +472,97 @@ func TestDeploymentGetStillWorksAsAlias(t *testing.T) {
 	}
 }
 
+func TestDeploymentImageSetUpdatesComposeServiceImage(t *testing.T) {
+	var updatedPayload map[string]string
+	requests := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api/compose":
+			_, _ = w.Write([]byte(`{"content":"name: api\nservices:\n  app:\n    image: ghcr.io/acme/api:old\n  worker:\n    image: ghcr.io/acme/worker:old\n"}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/deployments/api":
+			if err := json.NewDecoder(r.Body).Decode(&updatedPayload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"message":"Deployment updated"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "image", "set", "api", "app", "ghcr.io/acme/api:new"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Join(requests, "\n") != "GET /api/deployments/api/compose\nPUT /api/deployments/api" {
+		t.Fatalf("requests = %#v", requests)
+	}
+	compose := updatedPayload["compose_content"]
+	if !strings.Contains(compose, "image: ghcr.io/acme/api:new") {
+		t.Fatalf("compose missing updated image:\n%s", compose)
+	}
+	if !strings.Contains(compose, "image: ghcr.io/acme/worker:old") {
+		t.Fatalf("compose should preserve worker image:\n%s", compose)
+	}
+	if !strings.Contains(stdout.String(), "ghcr.io/acme/api:old -> ghcr.io/acme/api:new") {
+		t.Fatalf("stdout = %s", stdout.String())
+	}
+}
+
+func TestDeploymentImageSetCanDeployAfterUpdate(t *testing.T) {
+	var deployPayload map[string]any
+	requests := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api/compose":
+			_, _ = w.Write([]byte(`{"content":"services:\n  app:\n    image: old\n"}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/deployments/api":
+			_, _ = w.Write([]byte(`{"message":"Deployment updated"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/deployments/api/deploy":
+			if err := json.NewDecoder(r.Body).Decode(&deployPayload); err != nil {
+				t.Fatalf("decode deploy payload: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"message":"Deployment completed"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "image", "set", "api", "app", "new", "--deploy", "--operation", "restart"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Join(requests, "\n") != "GET /api/deployments/api/compose\nPUT /api/deployments/api\nPOST /api/deployments/api/deploy" {
+		t.Fatalf("requests = %#v", requests)
+	}
+	if deployPayload["action"] != "restart" || deployPayload["pull"] != true {
+		t.Fatalf("deploy payload = %+v", deployPayload)
+	}
+}
+
+func TestSetComposeServiceImageRejectsMissingService(t *testing.T) {
+	_, _, err := setComposeServiceImage("services:\n  app:\n    image: old\n", "worker", "new")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `service "worker" not found`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestImageListPrintsTableByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/images" {

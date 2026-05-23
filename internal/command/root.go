@@ -16,6 +16,7 @@ import (
 
 	"github.com/flatrun/cli/internal/config"
 	"github.com/flatrun/cli/internal/flatrun"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -523,7 +524,7 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
+		fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
 		return 2
 	}
 
@@ -532,6 +533,8 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 		return runDeploymentList(args[1:], stdout, stderr)
 	case "info", "get":
 		return runDeploymentInfo(args[0], args[1:], stdout, stderr)
+	case "image":
+		return runDeploymentImage(args[1:], stdout, stderr)
 	case "create":
 		return runDeploymentCreate(args[1:], stdout, stderr)
 	case "delete":
@@ -572,6 +575,102 @@ func runDeploymentInfo(command string, args []string, stdout, stderr io.Writer) 
 		},
 		render: renderDeploymentGet,
 	}, args, stdout, stderr)
+}
+
+func runDeploymentImage(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "Usage: flatrun deployment image <set>")
+		return 2
+	}
+	switch args[0] {
+	case "set":
+		return runDeploymentImageSet(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "Unknown deployment image command: %s\n", args[0])
+		return 2
+	}
+}
+
+func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
+	opts := globalOptions{}
+	deploy := false
+	operation := "rebuild"
+	pull := true
+	onlyLatest := false
+
+	fs := globalFlagSet("deployment image set", &opts, stderr, stderr)
+	fs.BoolVar(&deploy, "deploy", false, "Pull and run deployment operation after updating compose")
+	fs.StringVar(&operation, "operation", operation, "Deployment operation when --deploy is set: restart, rebuild, or start")
+	fs.BoolVar(&pull, "pull", pull, "Pull images before deployment operation when --deploy is set")
+	fs.BoolVar(&onlyLatest, "only-latest", onlyLatest, "Only pull images tagged latest when --deploy is set")
+	if code, ok := parseFlagSet(fs, interspersedFlags(args, globalValueFlags("operation"))); !ok {
+		return code
+	}
+	if fs.NArg() != 3 {
+		fmt.Fprintln(stderr, "Usage: flatrun deployment image set DEPLOYMENT SERVICE IMAGE [--deploy]")
+		return 2
+	}
+	if deploy && !deploymentOperations[operation] {
+		fmt.Fprintln(stderr, "Error: --operation must be restart, rebuild, or start")
+		return 2
+	}
+
+	client, err := clientFromOptions(opts)
+	if err != nil {
+		fmt.Fprintln(stderr, "Error:", err)
+		return 2
+	}
+
+	deploymentName := fs.Arg(0)
+	serviceName := fs.Arg(1)
+	imageName := fs.Arg(2)
+
+	data, err := client.GetDeploymentCompose(context.Background(), deploymentName)
+	if err != nil {
+		fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	content, err := composeContentFromResponse(data)
+	if err != nil {
+		fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	updated, oldImage, err := setComposeServiceImage(content, serviceName, imageName)
+	if err != nil {
+		fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+
+	data, err = client.UpdateDeploymentCompose(context.Background(), deploymentName, updated)
+	if err != nil {
+		fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	if opts.JSON && !deploy {
+		printResponse(stdout, true, data, "")
+		return 0
+	}
+	if !opts.JSON {
+		fmt.Fprintf(stdout, "Updated %s image for deployment %s: %s -> %s\n", serviceName, deploymentName, oldImage, imageName)
+	}
+
+	if deploy {
+		data, err = client.Deploy(context.Background(), deploymentName, flatrun.DeployRequest{
+			Action:     operation,
+			Pull:       pull,
+			OnlyLatest: onlyLatest,
+		})
+		if err != nil {
+			fmt.Fprintln(stderr, "Error:", err)
+			return 1
+		}
+		if opts.JSON {
+			printResponse(stdout, true, data, "")
+			return 0
+		}
+		printResponse(stdout, false, data, "Deployment completed")
+	}
+	return 0
 }
 
 func runDeploymentCreate(args []string, stdout, stderr io.Writer) int {
@@ -1114,6 +1213,79 @@ func renderDeploymentSummary(stdout io.Writer, deployment deploymentInfo, proxy 
 		{"Credential", deployment.Metadata.CredentialID},
 		{"Databases", databaseSummary(deployment)},
 	})
+}
+
+func composeContentFromResponse(data []byte) (string, error) {
+	var response struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(response.Content) == "" {
+		return "", errors.New("deployment compose response did not include content")
+	}
+	return response.Content, nil
+}
+
+func setComposeServiceImage(content, serviceName, imageName string) (string, string, error) {
+	if strings.TrimSpace(serviceName) == "" {
+		return "", "", errors.New("service name is required")
+	}
+	if strings.TrimSpace(imageName) == "" {
+		return "", "", errors.New("image is required")
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return "", "", err
+	}
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return "", "", errors.New("compose content must be a YAML mapping")
+	}
+	services := mappingValue(root.Content[0], "services")
+	if services == nil || services.Kind != yaml.MappingNode {
+		return "", "", errors.New("compose content does not contain services")
+	}
+	service := mappingValue(services, serviceName)
+	if service == nil || service.Kind != yaml.MappingNode {
+		return "", "", fmt.Errorf("service %q not found in compose", serviceName)
+	}
+	image := mappingValue(service, "image")
+	if image == nil {
+		return "", "", fmt.Errorf("service %q does not define an image", serviceName)
+	}
+	if image.Kind != yaml.ScalarNode {
+		return "", "", fmt.Errorf("service %q image is not a scalar value", serviceName)
+	}
+
+	oldImage := image.Value
+	image.Value = imageName
+	image.Tag = "!!str"
+
+	var output strings.Builder
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(root.Content[0]); err != nil {
+		_ = encoder.Close()
+		return "", "", err
+	}
+	if err := encoder.Close(); err != nil {
+		return "", "", err
+	}
+	return output.String(), oldImage, nil
+}
+
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
 }
 
 func writeKeyValues(stdout io.Writer, pairs [][]string) {

@@ -68,6 +68,8 @@ Manage an existing deployment:
 
 ```bash
 flatrun deployment info my-api
+flatrun deployment image set my-api app ghcr.io/acme/api:sha-abc123
+flatrun deployment image set my-api app ghcr.io/acme/api:sha-abc123 --deploy --operation restart
 flatrun deployment images my-api
 flatrun deployment containers my-api
 flatrun deployment services my-api
@@ -79,6 +81,8 @@ flatrun deployment delete my-api
 ```
 
 `deployment pull` operates at deployment level and may pull multiple images because a deployment can contain multiple compose services and containers. Use `deployment images` to inspect the service-to-image mapping first.
+
+`deployment image set` updates the image for one compose service and writes the updated compose back to the deployment. Add `--deploy` when CI should immediately pull and run a deployment operation after the compose update.
 
 Call any backend endpoint while a polished command is still pending:
 

@@ -247,6 +247,44 @@ func TestDeploymentImagesAndServices(t *testing.T) {
 	}
 }
 
+func TestDeploymentComposeEndpoints(t *testing.T) {
+	var requests []string
+	var updatePayload map[string]string
+
+	client := New("https://panel.example.com", "secret", time.Minute, false)
+	client.HTTP.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.Method+" "+req.URL.String())
+		if req.Method == http.MethodPut {
+			if err := json.NewDecoder(req.Body).Decode(&updatePayload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		}, nil
+	})
+
+	if _, err := client.GetDeploymentCompose(context.Background(), "my app"); err != nil {
+		t.Fatalf("GetDeploymentCompose returned error: %v", err)
+	}
+	if _, err := client.UpdateDeploymentCompose(context.Background(), "my app", "services: {}"); err != nil {
+		t.Fatalf("UpdateDeploymentCompose returned error: %v", err)
+	}
+
+	want := []string{
+		"GET https://panel.example.com/api/deployments/my%20app/compose",
+		"PUT https://panel.example.com/api/deployments/my%20app",
+	}
+	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+	if updatePayload["compose_content"] != "services: {}" {
+		t.Fatalf("payload = %+v", updatePayload)
+	}
+}
+
 func TestDoReturnsStructuredAPIError(t *testing.T) {
 	client := New("https://panel.example.com", "secret", time.Minute, false)
 	client.HTTP.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
