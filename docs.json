@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/whilesmart/docs-kit/main/schema/docs.schema.json",
+  "name": "FlatRun CLI",
+  "description": "Command-line interface for the FlatRun container orchestration platform",
+  "icon": "terminal",
+  "category": {
+    "language": "go"
+  },
+  "sidebar": [
+    {
+      "title": "Guides",
+      "path": "docs/guides/get-started.md",
+      "children": [
+        {
+          "title": "Deploy from CI",
+          "path": "docs/guides/ci-deployments.md"
+        },
+        {
+          "title": "Release the CLI",
+          "path": "docs/guides/releases.md"
+        }
+      ]
+    },
+    {
+      "title": "Reference",
+      "path": "docs/reference/commands.md",
+      "children": [
+        {
+          "title": "Configuration",
+          "path": "docs/reference/configuration.md"
+        }
+      ]
+    }
+  ]
+}

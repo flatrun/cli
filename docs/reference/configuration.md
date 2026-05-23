@@ -16,6 +16,8 @@ Run a command with a specific profile without switching:
 flatrun deployment list --profile staging
 ```
 
+The named profile must exist first. Create it with `flatrun configure set --profile NAME ...` before selecting it with `--profile` or `FLATRUN_PROFILE`.
+
 ## Config File
 
 Default path:

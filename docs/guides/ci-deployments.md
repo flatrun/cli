@@ -1,10 +1,11 @@
 # Deploy from CI
 
-Use environment variables in CI instead of writing a local profile:
+Use CI secrets as environment variables instead of writing a local profile:
 
-```bash
-export FLATRUN_URL=https://panel.example.com
-export FLATRUN_TOKEN=fr_xxx
+```yaml
+env:
+  FLATRUN_URL: ${{ secrets.FLATRUN_URL }}
+  FLATRUN_TOKEN: ${{ secrets.FLATRUN_TOKEN }}
 ```
 
 ## Update One Service Image

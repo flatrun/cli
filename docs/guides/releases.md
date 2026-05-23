@@ -7,7 +7,8 @@ Releases are created with the GitHub Actions **Release** workflow.
 1. Update `VERSION`.
 2. Add a matching entry to `CHANGELOG.md`.
 3. Run `make qa`.
-4. Trigger the **Release** workflow manually with the same version value.
+4. Commit the version and changelog changes.
+5. Trigger the **Release** workflow manually with the same version value.
 
 The workflow validates:
 

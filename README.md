@@ -89,7 +89,6 @@ Call any backend endpoint while a polished command is still pending:
 ```bash
 flatrun api get /settings
 flatrun api post /databases/list --data '{"container":"mysql"}'
-flatrun api post /deployments/my-api/actions/migrate
 ```
 
 Check API connectivity:

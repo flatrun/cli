@@ -2,17 +2,6 @@
 
 FlatRun CLI is the automation surface for FlatRun. It is designed for operators, CI systems, and scripts that need to manage deployments without opening the UI.
 
-## Get Started
-
-- [Install and configure](guides/get-started.md)
-- [Deploy from CI](guides/ci-deployments.md)
-- [Release the CLI](guides/releases.md)
-
-## Reference
-
-- [Command reference](reference/commands.md)
-- [Configuration](reference/configuration.md)
-
 ## Design Notes
 
 The CLI is resource-first: commands start with the thing being managed, then the action.

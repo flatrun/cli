@@ -1,0 +1,18 @@
+name: Validate Docs
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - 'docs.json'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'docs.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: whilesmart/docs-kit/.github/actions/validate-docs@main
