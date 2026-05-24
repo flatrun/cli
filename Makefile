@@ -17,7 +17,7 @@ help:
 	@echo "make fmt-check     - Check gofmt formatting"
 	@echo "make vet           - Run go vet"
 	@echo "make lint          - Run golangci-lint"
-	@echo "make qa            - Run fmt-check, vet, and tests"
+	@echo "make qa            - Run fmt-check, vet, lint, and tests"
 	@echo "make clean         - Clean build artifacts"
 
 deps:
@@ -52,7 +52,7 @@ lint:
 lint-install:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
-qa: fmt-check vet test
+qa: fmt-check vet lint test
 
 clean:
 	rm -f $(BINARY_NAME)

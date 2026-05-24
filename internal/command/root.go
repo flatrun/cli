@@ -188,7 +188,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	case "version", "--version":
-		fmt.Fprintf(stdout, "%s\nbuild_time=%s\ngit_commit=%s\n", Version, BuildTime, GitCommit)
+		_, _ = fmt.Fprintf(stdout, "%s\nbuild_time=%s\ngit_commit=%s\n", Version, BuildTime, GitCommit)
 		return 0
 	case "configure":
 		return runConfigure(args[1:], stdout, stderr)
@@ -203,27 +203,27 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "api":
 		return runAPI(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown command: %s\n\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown command: %s\n\n", args[0])
 		usage(stderr)
 		return 2
 	}
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "FlatRun CLI")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  flatrun <command> [options]")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  configure set       Save a local profile")
-	fmt.Fprintln(w, "  configure list      List local profiles")
-	fmt.Fprintln(w, "  health              Check FlatRun API health")
-	fmt.Fprintln(w, "  deployment          Manage deployments and their services/images/containers")
-	fmt.Fprintln(w, "  image               Manage Docker images")
-	fmt.Fprintln(w, "  container           Manage containers")
-	fmt.Fprintln(w, "  api                 Call any FlatRun API endpoint")
-	fmt.Fprintln(w, "  version             Print CLI version")
+	_, _ = fmt.Fprintln(w, "FlatRun CLI")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, "  flatrun <command> [options]")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Commands:")
+	_, _ = fmt.Fprintln(w, "  configure set       Save a local profile")
+	_, _ = fmt.Fprintln(w, "  configure list      List local profiles")
+	_, _ = fmt.Fprintln(w, "  health              Check FlatRun API health")
+	_, _ = fmt.Fprintln(w, "  deployment          Manage deployments and their services/images/containers")
+	_, _ = fmt.Fprintln(w, "  image               Manage Docker images")
+	_, _ = fmt.Fprintln(w, "  container           Manage containers")
+	_, _ = fmt.Fprintln(w, "  api                 Call any FlatRun API endpoint")
+	_, _ = fmt.Fprintln(w, "  version             Print CLI version")
 }
 
 func globalFlagSet(name string, opts *globalOptions, output, debugOut io.Writer) *flag.FlagSet {
@@ -293,18 +293,18 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 		return code
 	}
 	if fs.NArg() != cmd.positionals {
-		fmt.Fprintln(stderr, cmd.usage)
+		_, _ = fmt.Fprintln(stderr, cmd.usage)
 		return 2
 	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 	data, err := cmd.run(context.Background(), client, fs.Args())
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	if opts.JSON {
@@ -313,7 +313,7 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 	}
 	if cmd.render != nil {
 		if err := cmd.render(stdout, data); err != nil {
-			fmt.Fprintln(stderr, "Error:", err)
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
 			return 1
 		}
 		return 0
@@ -324,7 +324,7 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 
 func runConfigure(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun configure <set|list>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun configure <set|list>")
 		return 2
 	}
 	switch args[0] {
@@ -337,7 +337,7 @@ func runConfigure(args []string, stdout, stderr io.Writer) int {
 	case "delete":
 		return runConfigureDelete(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown configure command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown configure command: %s\n", args[0])
 		return 2
 	}
 }
@@ -359,42 +359,42 @@ func runConfigureSet(args []string, stdout, stderr io.Writer) int {
 	}
 	if tokenStdin {
 		if token != "" {
-			fmt.Fprintln(stderr, "Error: --token and --token-stdin are mutually exclusive")
+			_, _ = fmt.Fprintln(stderr, "Error: --token and --token-stdin are mutually exclusive")
 			return 2
 		}
 		if stdinIsTerminal() {
-			fmt.Fprintln(stderr, "Error: --token-stdin requires piped input")
+			_, _ = fmt.Fprintln(stderr, "Error: --token-stdin requires piped input")
 			return 2
 		}
 		data, err := io.ReadAll(stdin)
 		if err != nil {
-			fmt.Fprintln(stderr, "Error:", err)
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
 			return 1
 		}
 		token = strings.TrimSpace(string(data))
 	}
 	if urlValue == "" {
-		fmt.Fprintln(stderr, "Error: --url is required")
+		_, _ = fmt.Fprintln(stderr, "Error: --url is required")
 		return 2
 	}
 	if token == "" {
-		fmt.Fprintln(stderr, "Error: --token is required")
+		_, _ = fmt.Fprintln(stderr, "Error: --token is required")
 		return 2
 	}
 
 	path := config.DefaultPath()
 	cfg, err := config.Load(path)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	cfg.CurrentProfile = profileName
 	cfg.Profiles[profileName] = config.Profile{URL: urlValue, Token: token}
 	if err := config.Save(path, cfg); err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Saved profile %q\n", profileName)
+	_, _ = fmt.Fprintf(stdout, "Saved profile %q\n", profileName)
 	return 0
 }
 
@@ -407,7 +407,7 @@ func runConfigureList(args []string, stdout, stderr io.Writer) int {
 
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	names := make([]string, 0, len(cfg.Profiles))
@@ -420,7 +420,7 @@ func runConfigureList(args []string, stdout, stderr io.Writer) int {
 		if name == cfg.CurrentProfile {
 			marker = "*"
 		}
-		fmt.Fprintf(stdout, "%s %s\t%s\n", marker, name, cfg.Profiles[name].URL)
+		_, _ = fmt.Fprintf(stdout, "%s %s\t%s\n", marker, name, cfg.Profiles[name].URL)
 	}
 	return 0
 }
@@ -432,27 +432,27 @@ func runConfigureUse(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "Usage: flatrun configure use PROFILE")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun configure use PROFILE")
 		return 2
 	}
 
 	path := config.DefaultPath()
 	cfg, err := config.Load(path)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	profileName := fs.Arg(0)
 	if _, ok := cfg.Profiles[profileName]; !ok {
-		fmt.Fprintf(stderr, "Error: profile %q does not exist\n", profileName)
+		_, _ = fmt.Fprintf(stderr, "Error: profile %q does not exist\n", profileName)
 		return 1
 	}
 	cfg.CurrentProfile = profileName
 	if err := config.Save(path, cfg); err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Using profile %q\n", profileName)
+	_, _ = fmt.Fprintf(stdout, "Using profile %q\n", profileName)
 	return 0
 }
 
@@ -463,19 +463,19 @@ func runConfigureDelete(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "Usage: flatrun configure delete PROFILE")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun configure delete PROFILE")
 		return 2
 	}
 
 	path := config.DefaultPath()
 	cfg, err := config.Load(path)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	profileName := fs.Arg(0)
 	if _, ok := cfg.Profiles[profileName]; !ok {
-		fmt.Fprintf(stderr, "Error: profile %q does not exist\n", profileName)
+		_, _ = fmt.Fprintf(stderr, "Error: profile %q does not exist\n", profileName)
 		return 1
 	}
 	delete(cfg.Profiles, profileName)
@@ -483,10 +483,10 @@ func runConfigureDelete(args []string, stdout, stderr io.Writer) int {
 		cfg.CurrentProfile = nextProfileName(cfg.Profiles)
 	}
 	if err := config.Save(path, cfg); err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Deleted profile %q\n", profileName)
+	_, _ = fmt.Fprintf(stdout, "Deleted profile %q\n", profileName)
 	return 0
 }
 
@@ -510,12 +510,12 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 	}
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 	data, err := client.Health(context.Background())
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	printResponse(stdout, opts.JSON, data, "FlatRun API is reachable")
@@ -524,7 +524,7 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
 		return 2
 	}
 
@@ -548,7 +548,7 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 	case "images", "containers", "services":
 		return runDeploymentRead(args[0], args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown deployment command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown deployment command: %s\n", args[0])
 		return 2
 	}
 }
@@ -579,14 +579,14 @@ func runDeploymentInfo(command string, args []string, stdout, stderr io.Writer) 
 
 func runDeploymentImage(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment image <set>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment image <set>")
 		return 2
 	}
 	switch args[0] {
 	case "set":
 		return runDeploymentImageSet(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown deployment image command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown deployment image command: %s\n", args[0])
 		return 2
 	}
 }
@@ -607,17 +607,17 @@ func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 3 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment image set DEPLOYMENT SERVICE IMAGE [--deploy]")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment image set DEPLOYMENT SERVICE IMAGE [--deploy]")
 		return 2
 	}
 	if deploy && !deploymentOperations[operation] {
-		fmt.Fprintln(stderr, "Error: --operation must be restart, rebuild, or start")
+		_, _ = fmt.Fprintln(stderr, "Error: --operation must be restart, rebuild, or start")
 		return 2
 	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 
@@ -627,23 +627,23 @@ func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
 
 	data, err := client.GetDeploymentCompose(context.Background(), deploymentName)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	content, err := composeContentFromResponse(data)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	updated, oldImage, err := setComposeServiceImage(content, serviceName, imageName)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 
 	data, err = client.UpdateDeploymentCompose(context.Background(), deploymentName, updated)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	if opts.JSON && !deploy {
@@ -651,7 +651,7 @@ func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if !opts.JSON {
-		fmt.Fprintf(stdout, "Updated %s image for deployment %s: %s -> %s\n", serviceName, deploymentName, oldImage, imageName)
+		_, _ = fmt.Fprintf(stdout, "Updated %s image for deployment %s: %s -> %s\n", serviceName, deploymentName, oldImage, imageName)
 	}
 
 	if deploy {
@@ -661,7 +661,7 @@ func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
 			OnlyLatest: onlyLatest,
 		})
 		if err != nil {
-			fmt.Fprintln(stderr, "Error:", err)
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
 			return 1
 		}
 		if opts.JSON {
@@ -691,13 +691,13 @@ func runDeploymentCreate(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment create NAME [--image IMAGE]")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment create NAME [--image IMAGE]")
 		return 2
 	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 
@@ -721,7 +721,7 @@ func runDeploymentCreate(args []string, stdout, stderr io.Writer) int {
 
 	data, err := client.CreateDeployment(context.Background(), req)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	printResponse(stdout, opts.JSON, data, "Deployment created")
@@ -746,17 +746,17 @@ func runDeploymentDelete(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment delete NAME")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment delete NAME")
 		return 2
 	}
 	if !yes && confirm != fs.Arg(0) {
-		fmt.Fprintf(stderr, "Error: refusing to delete %q without --yes or --confirm %s\n", fs.Arg(0), fs.Arg(0))
+		_, _ = fmt.Fprintf(stderr, "Error: refusing to delete %q without --yes or --confirm %s\n", fs.Arg(0), fs.Arg(0))
 		return 2
 	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 	data, err := client.DeleteDeployment(context.Background(), fs.Arg(0), flatrun.DeleteDeploymentOptions{
@@ -765,7 +765,7 @@ func runDeploymentDelete(args []string, stdout, stderr io.Writer) int {
 		DeleteVhost:    deleteVhost,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	printResponse(stdout, opts.JSON, data, "Deployment deleted")
@@ -842,17 +842,17 @@ func runDeploymentDeploy(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "Usage: flatrun deployment deploy NAME [--operation restart|rebuild|start]")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment deploy NAME [--operation restart|rebuild|start]")
 		return 2
 	}
 	if !deploymentOperations[operation] {
-		fmt.Fprintln(stderr, "Error: --operation must be restart, rebuild, or start")
+		_, _ = fmt.Fprintln(stderr, "Error: --operation must be restart, rebuild, or start")
 		return 2
 	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 	data, err := client.Deploy(context.Background(), fs.Arg(0), flatrun.DeployRequest{
@@ -861,7 +861,7 @@ func runDeploymentDeploy(args []string, stdout, stderr io.Writer) int {
 		OnlyLatest: onlyLatest,
 	})
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	printResponse(stdout, opts.JSON, data, "Deployment completed")
@@ -870,7 +870,7 @@ func runDeploymentDeploy(args []string, stdout, stderr io.Writer) int {
 
 func runImage(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun image <list|pull|delete>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun image <list|pull|delete>")
 		return 2
 	}
 
@@ -882,7 +882,7 @@ func runImage(args []string, stdout, stderr io.Writer) int {
 	case "delete":
 		return runImageDelete(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown image command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown image command: %s\n", args[0])
 		return 2
 	}
 }
@@ -930,7 +930,7 @@ func runImageDelete(args []string, stdout, stderr io.Writer) int {
 
 func runContainer(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun container <list|start|stop|restart|delete>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun container <list|start|stop|restart|delete>")
 		return 2
 	}
 
@@ -942,7 +942,7 @@ func runContainer(args []string, stdout, stderr io.Writer) int {
 	case "delete":
 		return runContainerDelete(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown container command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown container command: %s\n", args[0])
 		return 2
 	}
 }
@@ -985,7 +985,7 @@ func runContainerDelete(args []string, stdout, stderr io.Writer) int {
 
 func runAPI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: flatrun api <get|post|put|delete> PATH [--data JSON]")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun api <get|post|put|delete> PATH [--data JSON]")
 		return 2
 	}
 
@@ -999,7 +999,7 @@ func runAPI(args []string, stdout, stderr io.Writer) int {
 	case "delete":
 		return runRawAPI(http.MethodDelete, args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "Unknown api command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "Unknown api command: %s\n", args[0])
 		return 2
 	}
 }
@@ -1013,26 +1013,26 @@ func runRawAPI(method string, args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintf(stderr, "Usage: flatrun api %s /path [--data JSON]\n", strings.ToLower(method))
+		_, _ = fmt.Fprintf(stderr, "Usage: flatrun api %s /path [--data JSON]\n", strings.ToLower(method))
 		return 2
 	}
 
 	var payload any
 	if dataArg != "" {
 		if err := json.Unmarshal([]byte(dataArg), &payload); err != nil {
-			fmt.Fprintln(stderr, "Error: invalid --data JSON:", err)
+			_, _ = fmt.Fprintln(stderr, "Error: invalid --data JSON:", err)
 			return 2
 		}
 	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
 	data, err := client.Raw(context.Background(), method, normalizeAPIPath(fs.Arg(0)), payload)
 	if err != nil {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
 	printResponse(stdout, true, data, "")
@@ -1057,27 +1057,27 @@ func normalizeAPIPath(path string) string {
 
 func printResponse(stdout io.Writer, rawJSON bool, data []byte, fallback string) {
 	if rawJSON {
-		fmt.Fprintln(stdout, string(data))
+		_, _ = fmt.Fprintln(stdout, string(data))
 		return
 	}
 	var response map[string]any
 	if err := json.Unmarshal(data, &response); err != nil {
 		if fallback == "" {
-			fmt.Fprintln(stdout, string(data))
+			_, _ = fmt.Fprintln(stdout, string(data))
 			return
 		}
-		fmt.Fprintln(stdout, fallback)
+		_, _ = fmt.Fprintln(stdout, fallback)
 		return
 	}
 	if message, ok := response["message"].(string); ok && strings.TrimSpace(message) != "" {
-		fmt.Fprintln(stdout, message)
+		_, _ = fmt.Fprintln(stdout, message)
 		return
 	}
 	if status, ok := response["status"].(string); ok && strings.TrimSpace(status) != "" && fallback != "" {
-		fmt.Fprintf(stdout, "%s: %s\n", fallback, status)
+		_, _ = fmt.Fprintf(stdout, "%s: %s\n", fallback, status)
 		return
 	}
-	fmt.Fprintln(stdout, fallback)
+	_, _ = fmt.Fprintln(stdout, fallback)
 }
 
 func renderDeploymentList(stdout io.Writer, data []byte) error {
@@ -1109,7 +1109,7 @@ func renderDeploymentGet(stdout io.Writer, data []byte) error {
 	for _, item := range response.Deployment.Services {
 		tableRows = append(tableRows, []string{item.Name, item.ContainerID, item.Image, item.Status, item.Health, strings.Join(item.Ports, ",")})
 	}
-	fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout)
 	writeTable(stdout, []string{"SERVICE", "CONTAINER", "IMAGE", "STATUS", "HEALTH", "PORTS"}, tableRows)
 	return nil
 }
@@ -1294,7 +1294,7 @@ func writeKeyValues(stdout io.Writer, pairs [][]string) {
 		if len(pair) != 2 || pair[1] == "" {
 			continue
 		}
-		fmt.Fprintf(tw, "%s:\t%s\n", pair[0], pair[1])
+		_, _ = fmt.Fprintf(tw, "%s:\t%s\n", pair[0], pair[1])
 	}
 	_ = tw.Flush()
 }
@@ -1396,9 +1396,9 @@ func databaseSummary(deployment deploymentInfo) string {
 
 func writeTable(stdout io.Writer, headers []string, tableRows [][]string) {
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
 	for _, row := range tableRows {
-		fmt.Fprintln(tw, strings.Join(row, "\t"))
+		_, _ = fmt.Fprintln(tw, strings.Join(row, "\t"))
 	}
 	_ = tw.Flush()
 }

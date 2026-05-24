@@ -217,18 +217,18 @@ func (c *Client) Do(ctx context.Context, method, path string, payload any) ([]by
 	}
 
 	if c.Debug != nil {
-		fmt.Fprintf(c.Debug, "-> %s %s\n", req.Method, req.URL.String())
+		_, _ = fmt.Fprintf(c.Debug, "-> %s %s\n", req.Method, req.URL.String())
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		if c.Debug != nil {
-			fmt.Fprintf(c.Debug, "<- error: %v\n", err)
+			_, _ = fmt.Fprintf(c.Debug, "<- error: %v\n", err)
 		}
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if c.Debug != nil {
-		fmt.Fprintf(c.Debug, "<- %d %s\n", resp.StatusCode, resp.Status)
+		_, _ = fmt.Fprintf(c.Debug, "<- %d %s\n", resp.StatusCode, resp.Status)
 	}
 
 	data, err := io.ReadAll(resp.Body)
@@ -236,7 +236,7 @@ func (c *Client) Do(ctx context.Context, method, path string, payload any) ([]by
 		return nil, err
 	}
 	if c.Debug != nil {
-		fmt.Fprintf(c.Debug, "<- body %d bytes\n", len(data))
+		_, _ = fmt.Fprintf(c.Debug, "<- body %d bytes\n", len(data))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body := strings.TrimSpace(string(data))
