@@ -50,6 +50,65 @@ func TestDeployUsesAPIBaseAndBearerToken(t *testing.T) {
 	}
 }
 
+func TestExecuteQuickActionPostsToActionsPath(t *testing.T) {
+	var captured *http.Request
+
+	client := New("https://panel.example.com/api", "secret", time.Minute, false)
+	client.HTTP.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		captured = req
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"message":"ok"}`)),
+		}, nil
+	})
+
+	if _, err := client.ExecuteQuickAction(context.Background(), "my app", "migrate"); err != nil {
+		t.Fatalf("ExecuteQuickAction returned error: %v", err)
+	}
+	if captured.Method != http.MethodPost {
+		t.Fatalf("method = %s", captured.Method)
+	}
+	if captured.URL.String() != "https://panel.example.com/api/deployments/my%20app/actions/migrate" {
+		t.Fatalf("url = %s", captured.URL.String())
+	}
+	if captured.Header.Get("Authorization") != "Bearer secret" {
+		t.Fatalf("authorization = %q", captured.Header.Get("Authorization"))
+	}
+}
+
+func TestContainerExecPostsCommand(t *testing.T) {
+	var captured *http.Request
+	var payload ExecRequest
+
+	client := New("https://panel.example.com/api", "secret", time.Minute, false)
+	client.HTTP.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		captured = req
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"output":"ok"}`)),
+		}, nil
+	})
+
+	_, err := client.ContainerExec(context.Background(), "abc123", ExecRequest{Command: "php", Args: []string{"artisan", "migrate"}})
+	if err != nil {
+		t.Fatalf("ContainerExec returned error: %v", err)
+	}
+	if captured.Method != http.MethodPost {
+		t.Fatalf("method = %s", captured.Method)
+	}
+	if captured.URL.String() != "https://panel.example.com/api/containers/abc123/exec" {
+		t.Fatalf("url = %s", captured.URL.String())
+	}
+	if payload.Command != "php" || len(payload.Args) != 2 || payload.Args[0] != "artisan" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
 func TestDoTrimsTrailingAPIBaseSlash(t *testing.T) {
 	var captured *http.Request
 

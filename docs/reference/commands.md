@@ -66,6 +66,27 @@ flatrun deployment services my-api
 flatrun deployment containers my-api
 ```
 
+Run a quick action:
+
+```bash
+flatrun deployment actions my-api
+flatrun deployment action my-api migrate
+```
+
+`deployment actions` lists the quick actions defined on a deployment. `deployment action` runs one in its service container and prints the command output. Quick actions are configured on the deployment (id, command, and target service) and are subject to the deployment's protected-mode rules. This is how operator commands such as database migrations or cache rebuilds are run from CI.
+
+Run an ad-hoc command (any command the container image provides):
+
+```bash
+flatrun deployment exec my-api -- npx prisma migrate deploy
+flatrun deployment exec my-api -- bin/rails db:migrate
+flatrun deployment exec my-api worker -- python manage.py migrate
+flatrun deployment exec my-api --service worker -- php artisan migrate --force
+flatrun container exec abc123 -- sh -c 'printenv | sort'
+```
+
+`deployment exec` runs a command in a deployment's service container and prints the output. The command and its arguments must follow `--`. Choose the service either as a positional argument (`exec NAME SERVICE -- ...`) or with `--service`; if a deployment has a single running service it is used automatically, and if it has more than one you must name it (otherwise the command reports the available services and stops). `container exec` targets a container directly by ID. Both run non-interactively and are subject to the deployment's protected-mode rules; on a non-zero exit they print the command's captured output and exit non-zero. Use a quick action when you want a named, reusable command instead.
+
 Pull deployment images:
 
 ```bash

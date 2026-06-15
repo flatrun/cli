@@ -304,6 +304,9 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 	}
 	data, err := cmd.run(context.Background(), client, fs.Args())
 	if err != nil {
+		if output := apiErrorOutput(err); output != "" {
+			_, _ = fmt.Fprintln(stderr, output)
+		}
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
@@ -524,7 +527,7 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|actions|action|exec|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
 		return 2
 	}
 
@@ -533,6 +536,12 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 		return runDeploymentList(args[1:], stdout, stderr)
 	case "info", "get":
 		return runDeploymentInfo(args[0], args[1:], stdout, stderr)
+	case "actions":
+		return runDeploymentActions(args[1:], stdout, stderr)
+	case "action":
+		return runDeploymentAction(args[1:], stdout, stderr)
+	case "exec":
+		return runDeploymentExec(args[1:], stdout, stderr)
 	case "image":
 		return runDeploymentImage(args[1:], stdout, stderr)
 	case "create":
@@ -575,6 +584,200 @@ func runDeploymentInfo(command string, args []string, stdout, stderr io.Writer) 
 		},
 		render: renderDeploymentGet,
 	}, args, stdout, stderr)
+}
+
+func runDeploymentActions(args []string, stdout, stderr io.Writer) int {
+	return runClientCommand(clientCommand{
+		name:        "deployment actions",
+		usage:       "Usage: flatrun deployment actions NAME",
+		positionals: 1,
+		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
+			return client.GetDeployment(ctx, args[0])
+		},
+		render: renderQuickActions,
+	}, args, stdout, stderr)
+}
+
+func runDeploymentAction(args []string, stdout, stderr io.Writer) int {
+	return runClientCommand(clientCommand{
+		name:        "deployment action",
+		usage:       "Usage: flatrun deployment action NAME ACTION_ID",
+		successMsg:  "Action executed",
+		positionals: 2,
+		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
+			return client.ExecuteQuickAction(ctx, args[0], args[1])
+		},
+		render: renderQuickActionResult,
+	}, args, stdout, stderr)
+}
+
+const deploymentExecUsage = "Usage: flatrun deployment exec NAME [SERVICE] -- COMMAND [ARGS...]"
+
+func runDeploymentExec(args []string, stdout, stderr io.Writer) int {
+	opts := globalOptions{}
+	service := ""
+
+	head, command, hasSeparator := splitOnDoubleDash(args)
+	if !hasSeparator || len(command) == 0 {
+		_, _ = fmt.Fprintln(stderr, deploymentExecUsage)
+		_, _ = fmt.Fprintln(stderr, "The command to run must follow `--`.")
+		return 2
+	}
+
+	fs := globalFlagSet("deployment exec", &opts, stderr, stderr)
+	fs.StringVar(&service, "service", "", "Service whose container runs the command")
+	if code, ok := parseFlagSet(fs, interspersedFlags(head, globalValueFlags("service"))); !ok {
+		return code
+	}
+
+	positionals := fs.Args()
+	if len(positionals) == 0 {
+		_, _ = fmt.Fprintln(stderr, deploymentExecUsage)
+		return 2
+	}
+	name := positionals[0]
+	switch {
+	case len(positionals) == 2:
+		if service != "" {
+			_, _ = fmt.Fprintln(stderr, "Error: service given both as an argument and --service")
+			return 2
+		}
+		service = positionals[1]
+	case len(positionals) > 2:
+		_, _ = fmt.Fprintf(stderr, "Error: unexpected arguments before `--`: %s\n", strings.Join(positionals[1:], " "))
+		_, _ = fmt.Fprintln(stderr, deploymentExecUsage)
+		return 2
+	}
+
+	client, err := clientFromOptions(opts)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 2
+	}
+
+	data, err := client.GetDeployment(context.Background(), name)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	containerID, err := serviceContainerID(data, service)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+
+	return execContainer(client, containerID, command, opts, stdout, stderr)
+}
+
+func runContainerExec(args []string, stdout, stderr io.Writer) int {
+	opts := globalOptions{}
+
+	const usage = "Usage: flatrun container exec CONTAINER_ID -- COMMAND [ARGS...]"
+	head, command, hasSeparator := splitOnDoubleDash(args)
+	if !hasSeparator || len(command) == 0 {
+		_, _ = fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, "The command to run must follow `--`.")
+		return 2
+	}
+
+	fs := globalFlagSet("container exec", &opts, stderr, stderr)
+	if code, ok := parseFlagSet(fs, interspersedFlags(head, globalValueFlags())); !ok {
+		return code
+	}
+
+	positionals := fs.Args()
+	if len(positionals) != 1 {
+		_, _ = fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	containerID := positionals[0]
+
+	client, err := clientFromOptions(opts)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 2
+	}
+
+	return execContainer(client, containerID, command, opts, stdout, stderr)
+}
+
+func execContainer(client *flatrun.Client, containerID string, command []string, opts globalOptions, stdout, stderr io.Writer) int {
+	data, err := client.ContainerExec(context.Background(), containerID, flatrun.ExecRequest{
+		Command: command[0],
+		Args:    command[1:],
+	})
+	if err != nil {
+		if output := apiErrorOutput(err); output != "" {
+			_, _ = fmt.Fprintln(stderr, output)
+		}
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	if opts.JSON {
+		printResponse(stdout, true, data, "")
+		return 0
+	}
+	if err := renderExecOutput(stdout, data); err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	return 0
+}
+
+func splitOnDoubleDash(args []string) (head, command []string, found bool) {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[:i], args[i+1:], true
+		}
+	}
+	return args, nil, false
+}
+
+func serviceContainerID(data []byte, service string) (string, error) {
+	var response struct {
+		Deployment struct {
+			Services []struct {
+				Name        string `json:"name"`
+				ContainerID string `json:"container_id"`
+			} `json:"services"`
+		} `json:"deployment"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return "", err
+	}
+	services := response.Deployment.Services
+	if service != "" {
+		for _, svc := range services {
+			if svc.Name == service {
+				if svc.ContainerID == "" {
+					return "", fmt.Errorf("service %q has no running container", service)
+				}
+				return svc.ContainerID, nil
+			}
+		}
+		available := make([]string, 0, len(services))
+		for _, svc := range services {
+			available = append(available, svc.Name)
+		}
+		return "", fmt.Errorf("service %q not found in deployment (services: %s)", service, strings.Join(available, ", "))
+	}
+
+	running := make([]string, 0, len(services))
+	containerID := ""
+	for _, svc := range services {
+		if svc.ContainerID != "" {
+			running = append(running, svc.Name)
+			containerID = svc.ContainerID
+		}
+	}
+	switch len(running) {
+	case 0:
+		return "", errors.New("no running container found in deployment")
+	case 1:
+		return containerID, nil
+	default:
+		return "", fmt.Errorf("deployment has multiple services (%s); choose one with: deployment exec NAME SERVICE -- COMMAND", strings.Join(running, ", "))
+	}
 }
 
 func runDeploymentImage(args []string, stdout, stderr io.Writer) int {
@@ -930,7 +1133,7 @@ func runImageDelete(args []string, stdout, stderr io.Writer) int {
 
 func runContainer(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun container <list|start|stop|restart|delete>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun container <list|start|stop|restart|exec|delete>")
 		return 2
 	}
 
@@ -939,6 +1142,8 @@ func runContainer(args []string, stdout, stderr io.Writer) int {
 		return runContainerList(args[1:], stdout, stderr)
 	case "start", "stop", "restart":
 		return runContainerSimple(args[0], args[1:], stdout, stderr)
+	case "exec":
+		return runContainerExec(args[1:], stdout, stderr)
 	case "delete":
 		return runContainerDelete(args[1:], stdout, stderr)
 	default:
@@ -1111,6 +1316,80 @@ func renderDeploymentGet(stdout io.Writer, data []byte) error {
 	}
 	_, _ = fmt.Fprintln(stdout)
 	writeTable(stdout, []string{"SERVICE", "CONTAINER", "IMAGE", "STATUS", "HEALTH", "PORTS"}, tableRows)
+	return nil
+}
+
+func renderQuickActions(stdout io.Writer, data []byte) error {
+	var response struct {
+		Deployment struct {
+			Metadata struct {
+				QuickActions []struct {
+					ID          string `json:"id"`
+					Name        string `json:"name"`
+					Service     string `json:"service"`
+					Command     string `json:"command"`
+					Description string `json:"description"`
+				} `json:"quick_actions"`
+			} `json:"metadata"`
+		} `json:"deployment"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	actions := response.Deployment.Metadata.QuickActions
+	tableRows := make([][]string, 0, len(actions))
+	for _, action := range actions {
+		tableRows = append(tableRows, []string{action.ID, action.Name, action.Service, action.Command, action.Description})
+	}
+	writeTable(stdout, []string{"ID", "NAME", "SERVICE", "COMMAND", "DESCRIPTION"}, tableRows)
+	return nil
+}
+
+func renderQuickActionResult(stdout io.Writer, data []byte) error {
+	var response struct {
+		Message  string `json:"message"`
+		ActionID string `json:"action_id"`
+		Output   string `json:"output"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	if strings.TrimSpace(response.Output) != "" {
+		_, _ = fmt.Fprintln(stdout, strings.TrimRight(response.Output, "\n"))
+	}
+	if response.Message != "" {
+		_, _ = fmt.Fprintln(stdout, response.Message)
+	}
+	return nil
+}
+
+// apiErrorOutput extracts a command's captured output from a failed API
+// response so a non-zero exit (e.g. a failed migration) shows what the
+// container actually printed, not just the exit status.
+func apiErrorOutput(err error) string {
+	var apiErr *flatrun.Error
+	if !errors.As(err, &apiErr) || apiErr.Body == "" {
+		return ""
+	}
+	var parsed struct {
+		Output string `json:"output"`
+	}
+	if json.Unmarshal([]byte(apiErr.Body), &parsed) != nil {
+		return ""
+	}
+	return strings.TrimRight(parsed.Output, "\n")
+}
+
+func renderExecOutput(stdout io.Writer, data []byte) error {
+	var response struct {
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	if strings.TrimSpace(response.Output) != "" {
+		_, _ = fmt.Fprintln(stdout, strings.TrimRight(response.Output, "\n"))
+	}
 	return nil
 }
 

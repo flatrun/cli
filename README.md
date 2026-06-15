@@ -84,6 +84,18 @@ flatrun deployment delete my-api
 
 `deployment image set` updates the image for one compose service and writes the updated compose back to the deployment. Add `--deploy` when CI should immediately pull and run a deployment operation after the compose update.
 
+Run commands inside a deployment, for tasks such as database migrations after a release:
+
+```bash
+flatrun deployment actions my-api
+flatrun deployment action my-api migrate
+flatrun deployment exec my-api -- bin/rails db:migrate
+flatrun deployment exec my-api worker -- php artisan queue:restart
+flatrun container exec abc123 -- sh -c 'printenv | sort'
+```
+
+`deployment action` runs a quick action defined on the deployment; `deployment actions` lists them. `deployment exec` runs an ad-hoc command instead: the command follows `--`, and the service is chosen positionally or with `--service` (a single-service deployment is resolved automatically, a multi-service one must be named). Both run in the service container, honor the deployment's protected-mode rules, and surface the command's output (including on a non-zero exit).
+
 Call any backend endpoint while a polished command is still pending:
 
 ```bash

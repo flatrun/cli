@@ -376,6 +376,234 @@ func TestDeploymentDeleteCallsAPIWithConfirmation(t *testing.T) {
 	}
 }
 
+func TestDeploymentActionExecutesAndPrintsOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.URL.Path != "/api/deployments/api/actions/migrate" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"message":"Action executed successfully","action_id":"migrate","output":"Migrating: 2024_01_01_create\nMigrated:  2024_01_01_create"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "action", "api", "migrate"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"Migrated:  2024_01_01_create", "Action executed successfully"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestDeploymentActionRequiresActionID(t *testing.T) {
+	t.Setenv("FLATRUN_URL", "https://panel.example.com")
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "action", "api"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestDeploymentActionsListsQuickActions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/deployments/api" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"deployment":{"name":"api","metadata":{"quick_actions":[{"id":"migrate","name":"Run migrations","service":"app","command":"php artisan migrate --force","description":"Apply pending migrations"}]}}}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "actions", "api"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"ID", "migrate", "Run migrations", "app", "php artisan migrate --force"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestContainerExecRunsCommandAndPrintsOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.URL.Path != "/api/containers/abc123/exec" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		var body struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Command != "php" || strings.Join(body.Args, " ") != "artisan migrate --force" {
+			t.Fatalf("body = %+v", body)
+		}
+		_, _ = w.Write([]byte(`{"output":"Nothing to migrate."}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"container", "exec", "abc123", "--", "php", "artisan", "migrate", "--force"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Nothing to migrate.") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestContainerExecPrintsOutputWhenCommandFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"exit status 127","output":"sh: php: not found"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"container", "exec", "abc123", "--", "php", "-v"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d", code)
+	}
+	if !strings.Contains(stderr.String(), "sh: php: not found") {
+		t.Fatalf("stderr missing command output: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "exit status 127") {
+		t.Fatalf("stderr missing error: %s", stderr.String())
+	}
+}
+
+func TestDeploymentExecResolvesServiceContainer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api":
+			_, _ = w.Write([]byte(`{"deployment":{"name":"api","services":[{"name":"app","container_id":"ctr-app"},{"name":"worker","container_id":"ctr-worker"}]}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/containers/ctr-worker/exec":
+			_, _ = w.Write([]byte(`{"output":"OPTIMIZED"}`))
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api", "--service", "worker", "--", "php", "artisan", "optimize"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "OPTIMIZED") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentExecAcceptsServiceAsPositional(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api":
+			_, _ = w.Write([]byte(`{"deployment":{"name":"api","services":[{"name":"app","container_id":"ctr-app"},{"name":"worker","container_id":"ctr-worker"}]}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/containers/ctr-app/exec":
+			_, _ = w.Write([]byte(`{"output":"OK"}`))
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api", "app", "--", "php", "artisan", "migrate"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "OK") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentExecErrorsWhenServiceAmbiguous(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/deployments/api" {
+			_, _ = w.Write([]byte(`{"deployment":{"name":"api","services":[{"name":"app","container_id":"ctr-app"},{"name":"worker","container_id":"ctr-worker"}]}}`))
+			return
+		}
+		t.Fatalf("unexpected request to %s; exec should not run when the service is ambiguous", r.URL.Path)
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api", "--", "php", "-v"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"multiple services", "app", "worker"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q: %s", want, stderr.String())
+		}
+	}
+}
+
+func TestDeploymentExecRequiresDoubleDash(t *testing.T) {
+	t.Setenv("FLATRUN_URL", "https://panel.example.com")
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	// No `--` separator: the command is not clearly delimited, so this is rejected.
+	code := Run([]string{"deployment", "exec", "api", "php", "artisan", "migrate"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestDeploymentExecRequiresCommand(t *testing.T) {
+	t.Setenv("FLATRUN_URL", "https://panel.example.com")
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
 func TestDeploymentListPrintsTableByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/deployments" {
