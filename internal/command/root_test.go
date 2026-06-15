@@ -441,6 +441,79 @@ func TestDeploymentActionsListsQuickActions(t *testing.T) {
 	}
 }
 
+func TestContainerExecRunsCommandAndPrintsOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.URL.Path != "/api/containers/abc123/exec" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		var body struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Command != "php" || strings.Join(body.Args, " ") != "artisan migrate --force" {
+			t.Fatalf("body = %+v", body)
+		}
+		_, _ = w.Write([]byte(`{"output":"Nothing to migrate."}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"container", "exec", "abc123", "--", "php", "artisan", "migrate", "--force"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Nothing to migrate.") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentExecResolvesServiceContainer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api":
+			_, _ = w.Write([]byte(`{"deployment":{"name":"api","services":[{"name":"app","container_id":"ctr-app"},{"name":"worker","container_id":"ctr-worker"}]}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/containers/ctr-worker/exec":
+			_, _ = w.Write([]byte(`{"output":"OPTIMIZED"}`))
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api", "--service", "worker", "--", "php", "artisan", "optimize"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "OPTIMIZED") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentExecRequiresCommand(t *testing.T) {
+	t.Setenv("FLATRUN_URL", "https://panel.example.com")
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
 func TestDeploymentListPrintsTableByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/deployments" {

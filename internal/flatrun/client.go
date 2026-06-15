@@ -189,6 +189,15 @@ func (c *Client) ContainerOperation(ctx context.Context, id, operation string) (
 	return c.Do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/"+url.PathEscape(operation), nil)
 }
 
+type ExecRequest struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+}
+
+func (c *Client) ContainerExec(ctx context.Context, id string, req ExecRequest) ([]byte, error) {
+	return c.Do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/exec", req)
+}
+
 func (c *Client) RemoveContainer(ctx context.Context, id string) ([]byte, error) {
 	return c.Do(ctx, http.MethodDelete, "/containers/"+url.PathEscape(id), nil)
 }
