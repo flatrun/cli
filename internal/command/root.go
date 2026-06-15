@@ -524,7 +524,7 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|actions|action|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
 		return 2
 	}
 
@@ -533,6 +533,10 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 		return runDeploymentList(args[1:], stdout, stderr)
 	case "info", "get":
 		return runDeploymentInfo(args[0], args[1:], stdout, stderr)
+	case "actions":
+		return runDeploymentActions(args[1:], stdout, stderr)
+	case "action":
+		return runDeploymentAction(args[1:], stdout, stderr)
 	case "image":
 		return runDeploymentImage(args[1:], stdout, stderr)
 	case "create":
@@ -574,6 +578,31 @@ func runDeploymentInfo(command string, args []string, stdout, stderr io.Writer) 
 			return client.GetDeployment(ctx, args[0])
 		},
 		render: renderDeploymentGet,
+	}, args, stdout, stderr)
+}
+
+func runDeploymentActions(args []string, stdout, stderr io.Writer) int {
+	return runClientCommand(clientCommand{
+		name:        "deployment actions",
+		usage:       "Usage: flatrun deployment actions NAME",
+		positionals: 1,
+		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
+			return client.GetDeployment(ctx, args[0])
+		},
+		render: renderQuickActions,
+	}, args, stdout, stderr)
+}
+
+func runDeploymentAction(args []string, stdout, stderr io.Writer) int {
+	return runClientCommand(clientCommand{
+		name:        "deployment action",
+		usage:       "Usage: flatrun deployment action NAME ACTION_ID",
+		successMsg:  "Action executed",
+		positionals: 2,
+		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
+			return client.ExecuteQuickAction(ctx, args[0], args[1])
+		},
+		render: renderQuickActionResult,
 	}, args, stdout, stderr)
 }
 
@@ -1111,6 +1140,50 @@ func renderDeploymentGet(stdout io.Writer, data []byte) error {
 	}
 	_, _ = fmt.Fprintln(stdout)
 	writeTable(stdout, []string{"SERVICE", "CONTAINER", "IMAGE", "STATUS", "HEALTH", "PORTS"}, tableRows)
+	return nil
+}
+
+func renderQuickActions(stdout io.Writer, data []byte) error {
+	var response struct {
+		Deployment struct {
+			Metadata struct {
+				QuickActions []struct {
+					ID          string `json:"id"`
+					Name        string `json:"name"`
+					Service     string `json:"service"`
+					Command     string `json:"command"`
+					Description string `json:"description"`
+				} `json:"quick_actions"`
+			} `json:"metadata"`
+		} `json:"deployment"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	actions := response.Deployment.Metadata.QuickActions
+	tableRows := make([][]string, 0, len(actions))
+	for _, action := range actions {
+		tableRows = append(tableRows, []string{action.ID, action.Name, action.Service, action.Command, action.Description})
+	}
+	writeTable(stdout, []string{"ID", "NAME", "SERVICE", "COMMAND", "DESCRIPTION"}, tableRows)
+	return nil
+}
+
+func renderQuickActionResult(stdout io.Writer, data []byte) error {
+	var response struct {
+		Message  string `json:"message"`
+		ActionID string `json:"action_id"`
+		Output   string `json:"output"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	if strings.TrimSpace(response.Output) != "" {
+		_, _ = fmt.Fprintln(stdout, strings.TrimRight(response.Output, "\n"))
+	}
+	if response.Message != "" {
+		_, _ = fmt.Fprintln(stdout, response.Message)
+	}
 	return nil
 }
 

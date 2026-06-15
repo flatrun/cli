@@ -109,6 +109,10 @@ func (c *Client) Manage(ctx context.Context, name string, operation string) ([]b
 	return c.Do(ctx, http.MethodPost, "/deployments/"+url.PathEscape(name)+"/"+url.PathEscape(operation), nil)
 }
 
+func (c *Client) ExecuteQuickAction(ctx context.Context, name, actionID string) ([]byte, error) {
+	return c.Do(ctx, http.MethodPost, "/deployments/"+url.PathEscape(name)+"/actions/"+url.PathEscape(actionID), nil)
+}
+
 func (c *Client) PullImages(ctx context.Context, name string, onlyLatest bool) ([]byte, error) {
 	return c.Do(ctx, http.MethodPost, "/deployments/"+url.PathEscape(name)+"/pull", map[string]bool{
 		"only_latest": onlyLatest,

@@ -376,6 +376,71 @@ func TestDeploymentDeleteCallsAPIWithConfirmation(t *testing.T) {
 	}
 }
 
+func TestDeploymentActionExecutesAndPrintsOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		if r.URL.Path != "/api/deployments/api/actions/migrate" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"message":"Action executed successfully","action_id":"migrate","output":"Migrating: 2024_01_01_create\nMigrated:  2024_01_01_create"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "action", "api", "migrate"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"Migrated:  2024_01_01_create", "Action executed successfully"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
+func TestDeploymentActionRequiresActionID(t *testing.T) {
+	t.Setenv("FLATRUN_URL", "https://panel.example.com")
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "action", "api"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestDeploymentActionsListsQuickActions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/deployments/api" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"deployment":{"name":"api","metadata":{"quick_actions":[{"id":"migrate","name":"Run migrations","service":"app","command":"php artisan migrate --force","description":"Apply pending migrations"}]}}}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "actions", "api"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"ID", "migrate", "Run migrations", "app", "php artisan migrate --force"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("table missing %q: %s", want, stdout.String())
+		}
+	}
+}
+
 func TestDeploymentListPrintsTableByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/deployments" {

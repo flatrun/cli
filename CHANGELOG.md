@@ -2,6 +2,13 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
+## [0.2.0] - 2026-06-15
+
+### Added
+
+- `flatrun deployment actions NAME` lists the quick actions defined on a deployment.
+- `flatrun deployment action NAME ACTION_ID` runs a quick action in its service container and prints the command output, enabling operator commands such as database migrations and cache rebuilds to run from CI.
+
 ## [0.1.0] - 2026-05-23
 
 ### Added

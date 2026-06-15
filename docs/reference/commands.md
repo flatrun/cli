@@ -66,6 +66,15 @@ flatrun deployment services my-api
 flatrun deployment containers my-api
 ```
 
+Run a quick action:
+
+```bash
+flatrun deployment actions my-api
+flatrun deployment action my-api migrate
+```
+
+`deployment actions` lists the quick actions defined on a deployment. `deployment action` runs one in its service container and prints the command output. Quick actions are configured on the deployment (id, command, and target service) and are subject to the deployment's protected-mode rules. This is how operator commands such as database migrations or cache rebuilds are run from CI.
+
 Pull deployment images:
 
 ```bash
