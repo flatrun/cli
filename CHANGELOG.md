@@ -8,7 +8,7 @@ All notable changes to the FlatRun CLI are documented in this file.
 
 - `flatrun deployment actions NAME` lists the quick actions defined on a deployment.
 - `flatrun deployment action NAME ACTION_ID` runs a quick action in its service container and prints the command output, enabling operator commands such as database migrations and cache rebuilds to run from CI.
-- `flatrun deployment exec NAME [--service SERVICE] -- COMMAND [ARGS...]` runs an ad-hoc command in a deployment's service container and prints the output, for one-off operator commands that are not defined as quick actions.
+- `flatrun deployment exec NAME [SERVICE] -- COMMAND [ARGS...]` runs an ad-hoc command in a deployment's service container and prints the output, for one-off operator commands that are not defined as quick actions. The service may be named positionally or with `--service`; a single-service deployment is resolved automatically, while a deployment with more than one service must be told which to use rather than guessing.
 - `flatrun container exec CONTAINER_ID -- COMMAND [ARGS...]` runs an ad-hoc command in a container by ID.
 - Exec and quick action failures print the command's captured output alongside the error, so a non-zero exit shows what the container actually reported instead of only the exit status. The command still exits non-zero.
 

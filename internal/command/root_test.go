@@ -526,6 +526,72 @@ func TestDeploymentExecResolvesServiceContainer(t *testing.T) {
 	}
 }
 
+func TestDeploymentExecAcceptsServiceAsPositional(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api":
+			_, _ = w.Write([]byte(`{"deployment":{"name":"api","services":[{"name":"app","container_id":"ctr-app"},{"name":"worker","container_id":"ctr-worker"}]}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/containers/ctr-app/exec":
+			_, _ = w.Write([]byte(`{"output":"OK"}`))
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api", "app", "--", "php", "artisan", "migrate"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "OK") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDeploymentExecErrorsWhenServiceAmbiguous(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/deployments/api" {
+			_, _ = w.Write([]byte(`{"deployment":{"name":"api","services":[{"name":"app","container_id":"ctr-app"},{"name":"worker","container_id":"ctr-worker"}]}}`))
+			return
+		}
+		t.Fatalf("unexpected request to %s; exec should not run when the service is ambiguous", r.URL.Path)
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"deployment", "exec", "api", "--", "php", "-v"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"multiple services", "app", "worker"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q: %s", want, stderr.String())
+		}
+	}
+}
+
+func TestDeploymentExecRequiresDoubleDash(t *testing.T) {
+	t.Setenv("FLATRUN_URL", "https://panel.example.com")
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	// No `--` separator: the command is not clearly delimited, so this is rejected.
+	code := Run([]string{"deployment", "exec", "api", "php", "artisan", "migrate"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
 func TestDeploymentExecRequiresCommand(t *testing.T) {
 	t.Setenv("FLATRUN_URL", "https://panel.example.com")
 	t.Setenv("FLATRUN_TOKEN", "secret")

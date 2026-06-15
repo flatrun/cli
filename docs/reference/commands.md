@@ -80,12 +80,12 @@ Run an ad-hoc command (any command the container image provides):
 ```bash
 flatrun deployment exec my-api -- npx prisma migrate deploy
 flatrun deployment exec my-api -- bin/rails db:migrate
-flatrun deployment exec my-api --service worker -- python manage.py migrate
-flatrun deployment exec my-api -- php artisan migrate --force
+flatrun deployment exec my-api worker -- python manage.py migrate
+flatrun deployment exec my-api --service worker -- php artisan migrate --force
 flatrun container exec abc123 -- sh -c 'printenv | sort'
 ```
 
-`deployment exec` runs a command in a deployment's service container and prints the output. Everything after `--` is the command and its arguments. `--service` selects the service when a deployment has more than one; without it the first running service is used. `container exec` targets a container directly by ID. Both run non-interactively and are subject to the deployment's protected-mode rules; use a quick action when you want a named, reusable command instead.
+`deployment exec` runs a command in a deployment's service container and prints the output. The command and its arguments must follow `--`. Choose the service either as a positional argument (`exec NAME SERVICE -- ...`) or with `--service`; if a deployment has a single running service it is used automatically, and if it has more than one you must name it (otherwise the command reports the available services and stops). `container exec` targets a container directly by ID. Both run non-interactively and are subject to the deployment's protected-mode rules; on a non-zero exit they print the command's captured output and exit non-zero. Use a quick action when you want a named, reusable command instead.
 
 Pull deployment images:
 

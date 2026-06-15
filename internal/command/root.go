@@ -611,11 +611,18 @@ func runDeploymentAction(args []string, stdout, stderr io.Writer) int {
 	}, args, stdout, stderr)
 }
 
+const deploymentExecUsage = "Usage: flatrun deployment exec NAME [SERVICE] -- COMMAND [ARGS...]"
+
 func runDeploymentExec(args []string, stdout, stderr io.Writer) int {
 	opts := globalOptions{}
 	service := ""
 
-	head, command := splitOnDoubleDash(args)
+	head, command, hasSeparator := splitOnDoubleDash(args)
+	if !hasSeparator || len(command) == 0 {
+		_, _ = fmt.Fprintln(stderr, deploymentExecUsage)
+		_, _ = fmt.Fprintln(stderr, "The command to run must follow `--`.")
+		return 2
+	}
 
 	fs := globalFlagSet("deployment exec", &opts, stderr, stderr)
 	fs.StringVar(&service, "service", "", "Service whose container runs the command")
@@ -625,15 +632,20 @@ func runDeploymentExec(args []string, stdout, stderr io.Writer) int {
 
 	positionals := fs.Args()
 	if len(positionals) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment exec NAME [--service SERVICE] -- COMMAND [ARGS...]")
+		_, _ = fmt.Fprintln(stderr, deploymentExecUsage)
 		return 2
 	}
 	name := positionals[0]
-	if len(command) == 0 {
-		command = positionals[1:]
-	}
-	if len(command) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment exec NAME [--service SERVICE] -- COMMAND [ARGS...]")
+	switch {
+	case len(positionals) == 2:
+		if service != "" {
+			_, _ = fmt.Fprintln(stderr, "Error: service given both as an argument and --service")
+			return 2
+		}
+		service = positionals[1]
+	case len(positionals) > 2:
+		_, _ = fmt.Fprintf(stderr, "Error: unexpected arguments before `--`: %s\n", strings.Join(positionals[1:], " "))
+		_, _ = fmt.Fprintln(stderr, deploymentExecUsage)
 		return 2
 	}
 
@@ -660,7 +672,13 @@ func runDeploymentExec(args []string, stdout, stderr io.Writer) int {
 func runContainerExec(args []string, stdout, stderr io.Writer) int {
 	opts := globalOptions{}
 
-	head, command := splitOnDoubleDash(args)
+	const usage = "Usage: flatrun container exec CONTAINER_ID -- COMMAND [ARGS...]"
+	head, command, hasSeparator := splitOnDoubleDash(args)
+	if !hasSeparator || len(command) == 0 {
+		_, _ = fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, "The command to run must follow `--`.")
+		return 2
+	}
 
 	fs := globalFlagSet("container exec", &opts, stderr, stderr)
 	if code, ok := parseFlagSet(fs, interspersedFlags(head, globalValueFlags())); !ok {
@@ -668,18 +686,11 @@ func runContainerExec(args []string, stdout, stderr io.Writer) int {
 	}
 
 	positionals := fs.Args()
-	if len(positionals) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun container exec CONTAINER_ID -- COMMAND [ARGS...]")
+	if len(positionals) != 1 {
+		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	containerID := positionals[0]
-	if len(command) == 0 {
-		command = positionals[1:]
-	}
-	if len(command) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun container exec CONTAINER_ID -- COMMAND [ARGS...]")
-		return 2
-	}
 
 	client, err := clientFromOptions(opts)
 	if err != nil {
@@ -713,13 +724,13 @@ func execContainer(client *flatrun.Client, containerID string, command []string,
 	return 0
 }
 
-func splitOnDoubleDash(args []string) (head, command []string) {
+func splitOnDoubleDash(args []string) (head, command []string, found bool) {
 	for i, arg := range args {
 		if arg == "--" {
-			return args[:i], args[i+1:]
+			return args[:i], args[i+1:], true
 		}
 	}
-	return args, nil
+	return args, nil, false
 }
 
 func serviceContainerID(data []byte, service string) (string, error) {
@@ -744,14 +755,29 @@ func serviceContainerID(data []byte, service string) (string, error) {
 				return svc.ContainerID, nil
 			}
 		}
-		return "", fmt.Errorf("service %q not found in deployment", service)
+		available := make([]string, 0, len(services))
+		for _, svc := range services {
+			available = append(available, svc.Name)
+		}
+		return "", fmt.Errorf("service %q not found in deployment (services: %s)", service, strings.Join(available, ", "))
 	}
+
+	running := make([]string, 0, len(services))
+	containerID := ""
 	for _, svc := range services {
 		if svc.ContainerID != "" {
-			return svc.ContainerID, nil
+			running = append(running, svc.Name)
+			containerID = svc.ContainerID
 		}
 	}
-	return "", errors.New("no running container found in deployment; specify --service")
+	switch len(running) {
+	case 0:
+		return "", errors.New("no running container found in deployment")
+	case 1:
+		return containerID, nil
+	default:
+		return "", fmt.Errorf("deployment has multiple services (%s); choose one with: deployment exec NAME SERVICE -- COMMAND", strings.Join(running, ", "))
+	}
 }
 
 func runDeploymentImage(args []string, stdout, stderr io.Writer) int {
