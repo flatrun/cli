@@ -304,6 +304,9 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 	}
 	data, err := cmd.run(context.Background(), client, fs.Args())
 	if err != nil {
+		if output := apiErrorOutput(err); output != "" {
+			_, _ = fmt.Fprintln(stderr, output)
+		}
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
@@ -693,6 +696,9 @@ func execContainer(client *flatrun.Client, containerID string, command []string,
 		Args:    command[1:],
 	})
 	if err != nil {
+		if output := apiErrorOutput(err); output != "" {
+			_, _ = fmt.Fprintln(stderr, output)
+		}
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
@@ -1329,6 +1335,23 @@ func renderQuickActionResult(stdout io.Writer, data []byte) error {
 		_, _ = fmt.Fprintln(stdout, response.Message)
 	}
 	return nil
+}
+
+// apiErrorOutput extracts a command's captured output from a failed API
+// response so a non-zero exit (e.g. a failed migration) shows what the
+// container actually printed, not just the exit status.
+func apiErrorOutput(err error) string {
+	var apiErr *flatrun.Error
+	if !errors.As(err, &apiErr) || apiErr.Body == "" {
+		return ""
+	}
+	var parsed struct {
+		Output string `json:"output"`
+	}
+	if json.Unmarshal([]byte(apiErr.Body), &parsed) != nil {
+		return ""
+	}
+	return strings.TrimRight(parsed.Output, "\n")
 }
 
 func renderExecOutput(stdout io.Writer, data []byte) error {

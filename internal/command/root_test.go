@@ -475,6 +475,30 @@ func TestContainerExecRunsCommandAndPrintsOutput(t *testing.T) {
 	}
 }
 
+func TestContainerExecPrintsOutputWhenCommandFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"exit status 127","output":"sh: php: not found"}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"container", "exec", "abc123", "--", "php", "-v"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d", code)
+	}
+	if !strings.Contains(stderr.String(), "sh: php: not found") {
+		t.Fatalf("stderr missing command output: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "exit status 127") {
+		t.Fatalf("stderr missing error: %s", stderr.String())
+	}
+}
+
 func TestDeploymentExecResolvesServiceContainer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
