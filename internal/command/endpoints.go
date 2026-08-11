@@ -52,17 +52,6 @@ func (e endpoint) resolvePath(args []string) (string, error) {
 	return path, nil
 }
 
-func endpointsByFamily() map[string][]endpoint {
-	families := map[string][]endpoint{}
-	for _, e := range generatedEndpoints {
-		families[e.family] = append(families[e.family], e)
-	}
-	for _, list := range families {
-		sort.Slice(list, func(i, j int) bool { return list[i].op < list[j].op })
-	}
-	return families
-}
-
 func findEndpoint(family, op string) (endpoint, bool) {
 	for _, e := range generatedEndpoints {
 		if e.family == family && e.op == op {
@@ -136,19 +125,19 @@ func (q queryValues) Set(raw string) error {
 // runEndpoint dispatches `flatrun FAMILY OP ...` against the generated table.
 func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		printFamily(stdout, family)
-		return 0
+		return listEndpoints(stdout, stderr, family, false)
 	}
 	switch args[0] {
 	case "help", "-h", "--help":
-		printFamily(stdout, family)
-		return 0
+		return listEndpoints(stdout, stderr, family, false)
+	case "--json":
+		return listEndpoints(stdout, stderr, family, true)
 	}
 
 	e, ok := findEndpoint(family, args[0])
 	if !ok {
 		_, _ = fmt.Fprintf(stderr, "Unknown %s command: %s\n\n", family, args[0])
-		printFamily(stderr, family)
+		listEndpoints(stderr, stderr, family, false)
 		return 2
 	}
 
@@ -214,20 +203,6 @@ func requestBody(dataArg string, fields fieldValues, e endpoint) (any, error) {
 	return nil, nil
 }
 
-func printFamily(w io.Writer, family string) {
-	list := endpointsByFamily()[family]
-	if len(list) == 0 {
-		_, _ = fmt.Fprintf(w, "No commands for %s\n", family)
-		return
-	}
-	_, _ = fmt.Fprintf(w, "flatrun %s\n\n", family)
-	for _, e := range list {
-		_, _ = fmt.Fprintf(w, "  %-28s %s %s\n", e.op+" "+argNames(e), e.method, e.path)
-	}
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Send a body with -f name=value (repeatable) or --data JSON.")
-}
-
 func argNames(e endpoint) string {
 	names := make([]string, 0, len(e.args))
 	for _, arg := range e.args {
@@ -236,23 +211,10 @@ func argNames(e endpoint) string {
 	return strings.Join(names, " ")
 }
 
-// runCommands prints every command the CLI can run. An agent driving this CLI needs to know
-// what exists without a human reading the docs, which is what --json is for.
-func runCommands(args []string, stdout, stderr io.Writer) int {
-	asJSON := false
-	family := ""
-	for _, arg := range args {
-		switch {
-		case arg == "--json":
-			asJSON = true
-		case strings.HasPrefix(arg, "-"):
-			_, _ = fmt.Fprintf(stderr, "Unknown flag: %s\n", arg)
-			return 2
-		default:
-			family = arg
-		}
-	}
-
+// listEndpoints prints what can be run, either for one family or for all of them. The JSON form
+// exists because a program driving this CLI should not have to parse help text to find out what
+// it can call.
+func listEndpoints(stdout, stderr io.Writer, family string, asJSON bool) int {
 	list := make([]endpoint, 0, len(generatedEndpoints))
 	for _, e := range generatedEndpoints {
 		if family == "" || e.family == family {
@@ -307,6 +269,8 @@ func runCommands(args []string, stdout, stderr io.Writer) int {
 		}
 		_, _ = fmt.Fprintf(stdout, "  %-30s %s %s\n", e.op+" "+argNames(e), e.method, e.path)
 	}
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout, "Send a body with -f name=value (repeatable) or --data JSON.")
 	return 0
 }
 

@@ -132,23 +132,22 @@ flatrun container delete CONTAINER_ID
 
 ## Every other resource
 
-The families above are shaped by hand. Every other endpoint the agent exposes is reachable as
-`flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's own routes.
+The families above are shaped by hand. Every other agent endpoint is
+`flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's routes.
 
 ```bash
-flatrun                     # the resource families
-flatrun backups             # what can be done with backups
+flatrun                     # the families
+flatrun backups             # what backups can do
 flatrun backups list
 flatrun backups restore BACKUP_ID
 flatrun certificates renew shop.example.com
-flatrun scheduler tasks
 ```
 
-The operation names follow the endpoint. A collection reads as `list`, one item as `get`, and a
-sub-resource keeps its own noun (`log-sources`, `actions`, `jobs`). Where a read and a write share
-a path, the read keeps the plain name and the write says what it does (`log-sources` and
-`log-sources-update`). Where the same verb applies to one item and to all of them, the targeted
-one keeps the plain name (`certificates renew DOMAIN`, `certificates renew-all`).
+Operation names follow the endpoint: a collection is `list`, one item is `get`, and a sub-resource
+keeps its noun (`log-sources`, `actions`, `jobs`). Where a read and a write share a path, the read
+keeps the plain name (`log-sources`, `log-sources-update`). Where a verb applies to one item or to
+all of them, the targeted one is plain, so `certificates renew DOMAIN` renews one and
+`certificates renew-all` renews everything.
 
 ### Sending a body
 
@@ -159,8 +158,7 @@ flatrun settings update --data @settings.json
 ```
 
 `-f name=value` is repeatable. A value that reads as JSON is sent as JSON, so `-f enabled=true`
-sends a boolean, `-f retention=7` sends a number, and `-f ports=[8080]` sends an array. Use
-`--data` for anything nested enough that fields get awkward; the two cannot be combined.
+sends a boolean and `-f ports=[8080]` sends an array. The two body forms cannot be combined.
 
 ### Query parameters
 
@@ -168,16 +166,17 @@ sends a boolean, `-f retention=7` sends a number, and `-f ports=[8080]` sends an
 flatrun deployment logs my-api -q service=web -q tail=200
 ```
 
-## Discovering the surface
+## Listing what exists
 
 ```bash
-flatrun commands              # every command
-flatrun commands backups      # one family
-flatrun commands --json       # the same list as JSON
+flatrun                       # the families
+flatrun backups               # one family
+flatrun --json                # every command as JSON
+flatrun backups --json        # one family as JSON
 ```
 
-The JSON form gives each command's family, operation, method, path, arguments and the exact
-invocation, which is what a script or an agent needs to use the CLI without reading this page.
+The JSON gives each command's family, operation, method, path, arguments and exact invocation,
+which is what a script or an agent needs to use the CLI without reading this page.
 
 ## Raw API
 

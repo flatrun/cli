@@ -187,6 +187,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
+	case "--json":
+		// The whole surface, for anything driving the CLI that should not have to read help
+		// text to find out what it can call.
+		return listEndpoints(stdout, stderr, "", true)
 	case "version", "--version":
 		_, _ = fmt.Fprintf(stdout, "%s\nbuild_time=%s\ngit_commit=%s\n", Version, BuildTime, GitCommit)
 		return 0
@@ -202,8 +206,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runContainer(args[1:], stdout, stderr)
 	case "api":
 		return runAPI(args[1:], stdout, stderr)
-	case "commands":
-		return runCommands(args[1:], stdout, stderr)
 	default:
 		// Families the CLI does not shape by hand still reach the agent, through the
 		// generated table, so a new endpoint there is reachable here without a wrapper.
@@ -230,13 +232,12 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  image               Manage Docker images")
 	_, _ = fmt.Fprintln(w, "  container           Manage containers")
 	_, _ = fmt.Fprintln(w, "  api                 Call any FlatRun API endpoint")
-	_, _ = fmt.Fprintln(w, "  commands            List every command, with --json for machine use")
 	_, _ = fmt.Fprintln(w, "  version             Print CLI version")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Resource families:")
 	_, _ = fmt.Fprintln(w, "  "+strings.Join(families(), ", "))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Run `flatrun <family>` to list its commands.")
+	_, _ = fmt.Fprintln(w, "Run `flatrun <family>` for its commands, or add --json for all of them.")
 }
 
 func globalFlagSet(name string, opts *globalOptions, output, debugOut io.Writer) *flag.FlagSet {

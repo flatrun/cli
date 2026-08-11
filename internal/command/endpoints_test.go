@@ -164,10 +164,10 @@ func TestHandWrittenFamilyFallsBackToTheTable(t *testing.T) {
 	}
 }
 
-// An agent driving the CLI reads this instead of the docs.
-func TestCommandsListsEveryEndpointAsJSON(t *testing.T) {
+// A program driving the CLI reads this instead of the docs.
+func TestJSONListingCoversEveryEndpoint(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"commands", "--json"}, &stdout, &stderr); code != 0 {
+	if code := Run([]string{"--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
 
@@ -188,6 +188,28 @@ func TestCommandsListsEveryEndpointAsJSON(t *testing.T) {
 	for _, e := range listed {
 		if e.Family == "" || e.Op == "" || e.Method == "" || !strings.HasPrefix(e.Path, "/") {
 			t.Fatalf("incomplete entry: %+v", e)
+		}
+	}
+}
+
+func TestJSONListingNarrowsToOneFamily(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"backups", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+
+	var listed []struct {
+		Family string `json:"family"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
+		t.Fatalf("the listing must be valid JSON: %v", err)
+	}
+	if len(listed) == 0 {
+		t.Fatal("no commands listed")
+	}
+	for _, e := range listed {
+		if e.Family != "backups" {
+			t.Fatalf("asked for one family, got %s", e.Family)
 		}
 	}
 }

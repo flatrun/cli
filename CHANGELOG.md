@@ -6,14 +6,14 @@ All notable changes to the FlatRun CLI are documented in this file.
 
 ### Added
 
-- Every endpoint the agent exposes is now a command, as `flatrun FAMILY OPERATION [ARGS]`, covering 294 endpoints across 42 resource families including backups, certificates, databases, domains, security, scheduler, object stores, users and API keys. The command table is generated from the agent's own routes rather than written by hand, so the CLI reaches a new endpoint as soon as it is regenerated instead of trailing behind by a release.
-- `flatrun commands` lists every command, and `flatrun commands --json` prints the same list with each command's method, path and arguments, so a script or an agent can discover the whole surface without reading the docs.
-- `flatrun` with no arguments and `flatrun FAMILY` with no operation list what is available at that level.
-- Request bodies can be built with repeatable `-f name=value` fields, or passed whole with `--data JSON` or `--data @file.json`. A field value that reads as JSON is sent as JSON, so `-f enabled=true` sends a boolean rather than a string. Query parameters go in with repeatable `-q name=value`.
+- Every agent endpoint is now a command: `flatrun FAMILY OPERATION [ARGS]`, covering 294 endpoints across 42 families. The table is generated from the agent's routes, so catching up is a regeneration rather than 294 hand-written wrappers.
+- `flatrun` lists the families, `flatrun FAMILY` lists its commands, and `--json` on either prints the same list with each command's method, path and arguments, for scripts and agents.
+- Request bodies from repeatable `-f name=value`, or `--data JSON` / `--data @file.json`. A field value that reads as JSON is sent as JSON, so `-f enabled=true` sends a boolean. Query parameters with repeatable `-q name=value`.
 
 ### Fixed
 
-- Single-dash flags with values (`-url`, `-token`, `-data`) were parsed as though they took no value, so the following argument was swallowed. Both spellings now work, as the flag package intends.
+- `-url`, `-token` and other single-dash flags swallowed the following argument, because only the double-dash spelling was registered as taking a value.
+- Path arguments were not escaped, so a value containing a slash reshaped the request path.
 
 ## [0.2.0] - 2026-06-15
 

@@ -98,19 +98,18 @@ flatrun container exec abc123 -- sh -c 'printenv | sort'
 
 ### Every other resource
 
-The commands above are shaped by hand because they print tables worth reading. Every other
-endpoint the agent exposes is reachable as `flatrun FAMILY OPERATION [ARGS]`, from a table
-generated out of the agent's own routes, so a new endpoint there does not wait on a wrapper here.
+The commands above are shaped by hand because they print tables worth reading. Every other agent
+endpoint is `flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's routes.
 
 ```bash
-flatrun                       # lists the resource families
-flatrun backups               # lists what can be done with backups
+flatrun                       # the families
+flatrun backups               # what backups can do
 flatrun backups list
 flatrun certificates renew shop.example.com
 flatrun deployment logs my-api -q service=web -q tail=200
 ```
 
-Send a body as fields or as JSON:
+Bodies go in as fields or as JSON:
 
 ```bash
 flatrun domains create -f domain=shop.example.com -f deployment=shop
@@ -118,24 +117,23 @@ flatrun settings update --data '{"backups":{"enabled":true}}'
 flatrun settings update --data @settings.json
 ```
 
-A field value that reads as JSON is sent as JSON, so `-f enabled=true` sends a boolean and
-`-f retention=7` sends a number. Query parameters go in with `-q name=value`.
+A field value that reads as JSON is sent as JSON: `-f enabled=true` sends a boolean, `-f retention=7`
+sends a number.
 
-### Driving the CLI from a script or an agent
+### Driving it from a script or an agent
 
-`flatrun commands --json` prints every command with its method, path and arguments, which is
-enough for a program to discover the whole surface without reading these docs:
+`--json` on any listing prints every command with its method, path and arguments:
 
 ```bash
-flatrun commands --json | jq '.[] | select(.family == "backups")'
-flatrun commands backups
+flatrun --json | jq '.[] | select(.family == "backups")'
+flatrun backups --json
 ```
 
 Add `--json` to any command for the raw response.
 
 ### The raw bridge
 
-Still available for anything the table does not cover, such as a streaming endpoint:
+For anything the table does not cover, such as a streaming endpoint:
 
 ```bash
 flatrun api get /settings
