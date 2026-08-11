@@ -96,7 +96,46 @@ flatrun container exec abc123 -- sh -c 'printenv | sort'
 
 `deployment action` runs a quick action defined on the deployment; `deployment actions` lists them. `deployment exec` runs an ad-hoc command instead: the command follows `--`, and the service is chosen positionally or with `--service` (a single-service deployment is resolved automatically, a multi-service one must be named). Both run in the service container, honor the deployment's protected-mode rules, and surface the command's output (including on a non-zero exit).
 
-Call any backend endpoint while a polished command is still pending:
+### Every other resource
+
+The commands above are shaped by hand because they print tables worth reading. Every other
+endpoint the agent exposes is reachable as `flatrun FAMILY OPERATION [ARGS]`, from a table
+generated out of the agent's own routes, so a new endpoint there does not wait on a wrapper here.
+
+```bash
+flatrun                       # lists the resource families
+flatrun backups               # lists what can be done with backups
+flatrun backups list
+flatrun certificates renew shop.example.com
+flatrun deployment logs my-api -q service=web -q tail=200
+```
+
+Send a body as fields or as JSON:
+
+```bash
+flatrun domains create -f domain=shop.example.com -f deployment=shop
+flatrun settings update --data '{"backups":{"enabled":true}}'
+flatrun settings update --data @settings.json
+```
+
+A field value that reads as JSON is sent as JSON, so `-f enabled=true` sends a boolean and
+`-f retention=7` sends a number. Query parameters go in with `-q name=value`.
+
+### Driving the CLI from a script or an agent
+
+`flatrun commands --json` prints every command with its method, path and arguments, which is
+enough for a program to discover the whole surface without reading these docs:
+
+```bash
+flatrun commands --json | jq '.[] | select(.family == "backups")'
+flatrun commands backups
+```
+
+Add `--json` to any command for the raw response.
+
+### The raw bridge
+
+Still available for anything the table does not cover, such as a streaming endpoint:
 
 ```bash
 flatrun api get /settings

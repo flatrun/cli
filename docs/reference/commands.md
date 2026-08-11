@@ -130,9 +130,58 @@ flatrun container restart CONTAINER_ID
 flatrun container delete CONTAINER_ID
 ```
 
+## Every other resource
+
+The families above are shaped by hand. Every other endpoint the agent exposes is reachable as
+`flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's own routes.
+
+```bash
+flatrun                     # the resource families
+flatrun backups             # what can be done with backups
+flatrun backups list
+flatrun backups restore BACKUP_ID
+flatrun certificates renew shop.example.com
+flatrun scheduler tasks
+```
+
+The operation names follow the endpoint. A collection reads as `list`, one item as `get`, and a
+sub-resource keeps its own noun (`log-sources`, `actions`, `jobs`). Where a read and a write share
+a path, the read keeps the plain name and the write says what it does (`log-sources` and
+`log-sources-update`). Where the same verb applies to one item and to all of them, the targeted
+one keeps the plain name (`certificates renew DOMAIN`, `certificates renew-all`).
+
+### Sending a body
+
+```bash
+flatrun domains create -f domain=shop.example.com -f deployment=shop
+flatrun settings update --data '{"backups":{"enabled":true}}'
+flatrun settings update --data @settings.json
+```
+
+`-f name=value` is repeatable. A value that reads as JSON is sent as JSON, so `-f enabled=true`
+sends a boolean, `-f retention=7` sends a number, and `-f ports=[8080]` sends an array. Use
+`--data` for anything nested enough that fields get awkward; the two cannot be combined.
+
+### Query parameters
+
+```bash
+flatrun deployment logs my-api -q service=web -q tail=200
+```
+
+## Discovering the surface
+
+```bash
+flatrun commands              # every command
+flatrun commands backups      # one family
+flatrun commands --json       # the same list as JSON
+```
+
+The JSON form gives each command's family, operation, method, path, arguments and the exact
+invocation, which is what a script or an agent needs to use the CLI without reading this page.
+
 ## Raw API
 
-Use the raw API bridge while a polished command is still pending:
+Use the raw API bridge for anything the table does not cover, such as a streaming endpoint:
 
 ```bash
 flatrun api get /settings

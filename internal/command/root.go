@@ -202,7 +202,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runContainer(args[1:], stdout, stderr)
 	case "api":
 		return runAPI(args[1:], stdout, stderr)
+	case "commands":
+		return runCommands(args[1:], stdout, stderr)
 	default:
+		// Families the CLI does not shape by hand still reach the agent, through the
+		// generated table, so a new endpoint there is reachable here without a wrapper.
+		if knownFamily(args[0]) {
+			return runEndpoint(args[0], args[1:], stdout, stderr)
+		}
 		_, _ = fmt.Fprintf(stderr, "Unknown command: %s\n\n", args[0])
 		usage(stderr)
 		return 2
@@ -223,7 +230,13 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  image               Manage Docker images")
 	_, _ = fmt.Fprintln(w, "  container           Manage containers")
 	_, _ = fmt.Fprintln(w, "  api                 Call any FlatRun API endpoint")
+	_, _ = fmt.Fprintln(w, "  commands            List every command, with --json for machine use")
 	_, _ = fmt.Fprintln(w, "  version             Print CLI version")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Resource families:")
+	_, _ = fmt.Fprintln(w, "  "+strings.Join(families(), ", "))
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Run `flatrun <family>` to list its commands.")
 }
 
 func globalFlagSet(name string, opts *globalOptions, output, debugOut io.Writer) *flag.FlagSet {
@@ -557,6 +570,11 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 	case "images", "containers", "services":
 		return runDeploymentRead(args[0], args[1:], stdout, stderr)
 	default:
+		// Everything the agent exposes under /deployments that has no hand-shaped command
+		// here, so the singular family is not a smaller surface than the plural one.
+		if _, ok := findEndpoint("deployments", args[0]); ok {
+			return runEndpoint("deployments", args, stdout, stderr)
+		}
 		_, _ = fmt.Fprintf(stderr, "Unknown deployment command: %s\n", args[0])
 		return 2
 	}
@@ -1755,8 +1773,11 @@ func stringValue(value any) string {
 }
 
 func valueFlags(names ...string) map[string]bool {
-	result := make(map[string]bool, len(names))
+	result := make(map[string]bool, len(names)*2)
 	for _, name := range names {
+		// Go's flag package takes one dash or two, so both spellings have to be recognised
+		// here or the value gets read as the next flag.
+		result["-"+name] = true
 		result["--"+name] = true
 	}
 	return result
