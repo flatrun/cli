@@ -11,8 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flatrun/cli/internal/flatrun"
+	"github.com/flatrun/cli/internal/spec"
 )
 
 // endpoint is one agent API endpoint, reachable as `flatrun FAMILY OP ARGS...`. The table is
@@ -131,6 +133,10 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 		return listEndpoints(stdout, stderr, family, true)
 	}
 
+	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+		return explainEndpoint(family, args[0], stdout, stderr)
+	}
+
 	e, ok := findEndpoint(family, args[0])
 	if !ok {
 		_, _ = fmt.Fprintf(stderr, "Unknown %s command: %s\n\n", family, args[0])
@@ -141,6 +147,9 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 	fields := fieldValues{}
 	query := queryValues{}
 	dataArg := ""
+	var api *spec.Spec
+	var operation spec.Operation
+	described := false
 
 	cmd := clientCommand{
 		name:        family + " " + e.op,
@@ -157,6 +166,23 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 			if err != nil {
 				return nil, err
 			}
+
+			// The agent's own description of this endpoint, when it offers one. Checking here
+			// turns a 400 with no explanation into a message naming the field.
+			api = spec.Load(ctx, client, client.BaseURL())
+			if api != nil {
+				if op, found := api.Operation(e.method, e.path); found {
+					operation = op
+					described = true
+					if err := checkFields(api, op, fields); err != nil {
+						return nil, err
+					}
+					if err := checkQuery(api, op, query); err != nil {
+						return nil, err
+					}
+				}
+			}
+
 			if len(query) > 0 {
 				path += "?" + url.Values(query).Encode()
 			}
@@ -165,6 +191,13 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 				return nil, err
 			}
 			return client.Do(ctx, e.method, path, payload)
+		},
+		render: func(w io.Writer, data []byte) error {
+			if described && renderTable(w, api, operation, data) {
+				return nil
+			}
+			printResponse(w, true, data, "")
+			return nil
 		},
 	}
 	return runClientCommand(cmd, args[1:], stdout, stderr)
@@ -179,6 +212,37 @@ func runAliasedEndpoint(plural, singular string, args []string, stdout, stderr i
 	_, _ = fmt.Fprintf(stderr, "Unknown %s command: %s\n\n", singular, args[0])
 	listEndpoints(stderr, stderr, singular, false)
 	return 2
+}
+
+// explainEndpoint answers "what does this take" from the agent's own description, rather than
+// leaving a caller to read the agent's source or guess at field names.
+func explainEndpoint(family, op string, stdout, stderr io.Writer) int {
+	e, ok := findEndpoint(family, op)
+	if !ok {
+		_, _ = fmt.Fprintf(stderr, "Unknown %s command: %s\n", family, op)
+		return 2
+	}
+
+	client, err := clientFromOptions(globalOptions{Timeout: 30 * time.Second})
+	if err != nil {
+		_, _ = fmt.Fprintln(stdout, invocation(e))
+		_, _ = fmt.Fprintln(stdout, "\nConnect to an agent to see the fields this takes.")
+		return 0
+	}
+
+	api := spec.Load(context.Background(), client, client.BaseURL())
+	if api == nil {
+		_, _ = fmt.Fprintln(stdout, invocation(e))
+		_, _ = fmt.Fprintln(stdout, "\nThis agent does not describe its API, so the fields are not known here.")
+		return 0
+	}
+	operation, found := api.Operation(e.method, e.path)
+	if !found {
+		_, _ = fmt.Fprintln(stdout, invocation(e))
+		return 0
+	}
+	describeEndpoint(stdout, api, e, operation)
+	return 0
 }
 
 func requestBody(dataArg string, fields fieldValues, e endpoint) (any, error) {

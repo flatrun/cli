@@ -69,6 +69,10 @@ func New(baseURL, token string, timeout time.Duration, insecure bool) *Client {
 	}
 }
 
+// BaseURL is the agent this client talks to, which is what a cache of that agent's API
+// description is keyed on.
+func (c *Client) BaseURL() string { return c.baseURL }
+
 func (c *Client) Health(ctx context.Context) ([]byte, error) {
 	return c.Do(ctx, http.MethodGet, "/health", nil)
 }
