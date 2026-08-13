@@ -182,8 +182,8 @@ func TestJSONListingCoversEveryEndpoint(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
 		t.Fatalf("the listing must be valid JSON: %v", err)
 	}
-	if len(listed) != len(generatedEndpoints) {
-		t.Fatalf("listed %d of %d endpoints", len(listed), len(generatedEndpoints))
+	if len(listed) != len(catalogue()) {
+		t.Fatalf("listed %d of %d commands", len(listed), len(catalogue()))
 	}
 	for _, e := range listed {
 		if e.Family == "" || e.Op == "" || e.Method == "" || !strings.HasPrefix(e.Path, "/") {
@@ -210,6 +210,72 @@ func TestJSONListingNarrowsToOneFamily(t *testing.T) {
 	for _, e := range listed {
 		if e.Family != "backups" {
 			t.Fatalf("asked for one family, got %s", e.Family)
+		}
+	}
+}
+
+// A caller reading the JSON must see the hand-shaped commands too, or it only learns half of
+// what the CLI can do and reaches for the raw endpoint instead.
+func TestJSONListingIncludesHandShapedCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+
+	var listed []struct {
+		Family  string `json:"family"`
+		Op      string `json:"op"`
+		Command string `json:"command"`
+		Shaped  bool   `json:"shaped"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, e := range listed {
+		if e.Family == "deployment" && e.Op == "exec" {
+			found = true
+			if !e.Shaped {
+				t.Error("a hand-shaped command should say so")
+			}
+			if !strings.Contains(e.Command, "-- COMMAND") {
+				t.Errorf("the invocation should show what it takes, got %q", e.Command)
+			}
+		}
+	}
+	if !found {
+		t.Error("deployment exec is missing from the listing")
+	}
+}
+
+// Both names for one resource reach the same operations.
+func TestSingularFamilyListsWhatThePluralDoes(t *testing.T) {
+	var singular, plural, stderr bytes.Buffer
+	if code := Run([]string{"deployment", "--json"}, &singular, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if code := Run([]string{"deployments", "--json"}, &plural, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+
+	ops := func(raw []byte) map[string]bool {
+		var listed []struct {
+			Op string `json:"op"`
+		}
+		if err := json.Unmarshal(raw, &listed); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]bool{}
+		for _, e := range listed {
+			out[e.Op] = true
+		}
+		return out
+	}
+
+	for op := range ops(plural.Bytes()) {
+		if !ops(singular.Bytes())[op] {
+			t.Errorf("deployments %s is not reachable as deployment %s", op, op)
 		}
 	}
 }

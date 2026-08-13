@@ -24,16 +24,13 @@ type endpoint struct {
 	method string
 	path   string
 	args   []string
+	// Set on the commands written by hand: extra arguments they take beyond the path, and the
+	// marker that says the generated table is not the whole story for this one.
+	flags  string
+	shaped bool
 }
 
-// command is what an operator types, and what `flatrun commands` prints.
-func (e endpoint) command() string {
-	parts := []string{"flatrun", e.family, e.op}
-	for _, arg := range e.args {
-		parts = append(parts, strings.ToUpper(arg))
-	}
-	return strings.Join(parts, " ")
-}
+func (e endpoint) command() string { return invocation(e) }
 
 func (e endpoint) writes() bool { return e.method != "GET" }
 
@@ -173,6 +170,17 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 	return runClientCommand(cmd, args[1:], stdout, stderr)
 }
 
+// runAliasedEndpoint reaches a plural family's endpoint from its singular name, so the two are
+// not different surfaces.
+func runAliasedEndpoint(plural, singular string, args []string, stdout, stderr io.Writer) int {
+	if _, ok := findEndpoint(plural, args[0]); ok {
+		return runEndpoint(plural, args, stdout, stderr)
+	}
+	_, _ = fmt.Fprintf(stderr, "Unknown %s command: %s\n\n", singular, args[0])
+	listEndpoints(stderr, stderr, singular, false)
+	return 2
+}
+
 func requestBody(dataArg string, fields fieldValues, e endpoint) (any, error) {
 	if dataArg != "" && len(fields) > 0 {
 		return nil, fmt.Errorf("use --data or -f, not both")
@@ -216,7 +224,7 @@ func argNames(e endpoint) string {
 // it can call.
 func listEndpoints(stdout, stderr io.Writer, family string, asJSON bool) int {
 	list := make([]endpoint, 0, len(generatedEndpoints))
-	for _, e := range generatedEndpoints {
+	for _, e := range catalogue() {
 		if family == "" || e.family == family {
 			list = append(list, e)
 		}
@@ -240,6 +248,7 @@ func listEndpoints(stdout, stderr io.Writer, family string, asJSON bool) int {
 			Path    string   `json:"path"`
 			Args    []string `json:"args"`
 			Command string   `json:"command"`
+			Shaped  bool     `json:"shaped,omitempty"`
 		}
 		out := make([]wire, 0, len(list))
 		for _, e := range list {
@@ -247,7 +256,7 @@ func listEndpoints(stdout, stderr io.Writer, family string, asJSON bool) int {
 			if args == nil {
 				args = []string{}
 			}
-			out = append(out, wire{e.family, e.op, e.method, e.path, args, e.command()})
+			out = append(out, wire{e.family, e.op, e.method, e.path, args, e.command(), e.shaped})
 		}
 		encoded, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -267,7 +276,7 @@ func listEndpoints(stdout, stderr io.Writer, family string, asJSON bool) int {
 			current = e.family
 			_, _ = fmt.Fprintln(stdout, e.family)
 		}
-		_, _ = fmt.Fprintf(stdout, "  %-30s %s %s\n", e.op+" "+argNames(e), e.method, e.path)
+		_, _ = fmt.Fprintf(stdout, "  %-38s %s %s\n", strings.TrimSpace(e.op+" "+argNames(e)+" "+e.flags), e.method, e.path)
 	}
 	_, _ = fmt.Fprintln(stdout)
 	_, _ = fmt.Fprintln(stdout, "Send a body with -f name=value (repeatable) or --data JSON.")

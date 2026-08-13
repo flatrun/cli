@@ -541,11 +541,14 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment <list|info|get|actions|action|exec|image|create|delete|start|stop|restart|rebuild|deploy|pull|images|containers|services>")
-		return 2
+		return listEndpoints(stdout, stderr, "deployment", false)
 	}
 
 	switch args[0] {
+	case "help", "-h", "--help":
+		return listEndpoints(stdout, stderr, "deployment", false)
+	case "--json":
+		return listEndpoints(stdout, stderr, "deployment", true)
 	case "list":
 		return runDeploymentList(args[1:], stdout, stderr)
 	case "info", "get":
@@ -571,13 +574,7 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 	case "images", "containers", "services":
 		return runDeploymentRead(args[0], args[1:], stdout, stderr)
 	default:
-		// Everything the agent exposes under /deployments that has no hand-shaped command
-		// here, so the singular family is not a smaller surface than the plural one.
-		if _, ok := findEndpoint("deployments", args[0]); ok {
-			return runEndpoint("deployments", args, stdout, stderr)
-		}
-		_, _ = fmt.Fprintf(stderr, "Unknown deployment command: %s\n", args[0])
-		return 2
+		return runAliasedEndpoint("deployments", "deployment", args, stdout, stderr)
 	}
 }
 
@@ -1092,11 +1089,14 @@ func runDeploymentDeploy(args []string, stdout, stderr io.Writer) int {
 
 func runImage(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun image <list|pull|delete>")
-		return 2
+		return listEndpoints(stdout, stderr, "image", false)
 	}
 
 	switch args[0] {
+	case "help", "-h", "--help":
+		return listEndpoints(stdout, stderr, "image", false)
+	case "--json":
+		return listEndpoints(stdout, stderr, "image", true)
 	case "list":
 		return runImageList(args[1:], stdout, stderr)
 	case "pull":
@@ -1104,8 +1104,7 @@ func runImage(args []string, stdout, stderr io.Writer) int {
 	case "delete":
 		return runImageDelete(args[1:], stdout, stderr)
 	default:
-		_, _ = fmt.Fprintf(stderr, "Unknown image command: %s\n", args[0])
-		return 2
+		return runAliasedEndpoint("images", "image", args, stdout, stderr)
 	}
 }
 
@@ -1152,11 +1151,14 @@ func runImageDelete(args []string, stdout, stderr io.Writer) int {
 
 func runContainer(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun container <list|start|stop|restart|exec|delete>")
-		return 2
+		return listEndpoints(stdout, stderr, "container", false)
 	}
 
 	switch args[0] {
+	case "help", "-h", "--help":
+		return listEndpoints(stdout, stderr, "container", false)
+	case "--json":
+		return listEndpoints(stdout, stderr, "container", true)
 	case "list":
 		return runContainerList(args[1:], stdout, stderr)
 	case "start", "stop", "restart":
@@ -1166,8 +1168,7 @@ func runContainer(args []string, stdout, stderr io.Writer) int {
 	case "delete":
 		return runContainerDelete(args[1:], stdout, stderr)
 	default:
-		_, _ = fmt.Fprintf(stderr, "Unknown container command: %s\n", args[0])
-		return 2
+		return runAliasedEndpoint("containers", "container", args, stdout, stderr)
 	}
 }
 
