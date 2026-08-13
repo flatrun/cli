@@ -193,7 +193,7 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 			return client.Do(ctx, e.method, path, payload)
 		},
 		render: func(w io.Writer, data []byte) error {
-			if described && renderTable(w, api, operation, data) {
+			if described && renderAnswer(w, api, operation, data) {
 				return nil
 			}
 			printResponse(w, true, data, "")

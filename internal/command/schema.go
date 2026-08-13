@@ -139,10 +139,10 @@ func describeEndpoint(w io.Writer, api *spec.Spec, e endpoint, op spec.Operation
 	}
 }
 
-// renderTable prints an endpoint's answer as columns when the type it returns says which fields
-// make a row. Nothing here is written per endpoint: the layout comes from the description.
-func renderTable(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) bool {
-	table, ok := api.Table(op)
+// renderAnswer lays out a response according to the shape the agent says it answers in. Nothing
+// here knows a resource: a list of certificates and a list of backups take the same path.
+func renderAnswer(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) bool {
+	shape, ok := api.Shape(op)
 	if !ok {
 		return false
 	}
@@ -151,7 +151,27 @@ func renderTable(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) bo
 	if err := json.Unmarshal(data, &body); err != nil {
 		return false
 	}
-	raw, ok := body[table.Key]
+
+	switch shape.Kind {
+	case "list":
+		return renderList(w, shape, body)
+	case "item":
+		return renderItem(w, shape, body)
+	case "message":
+		var message struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(data, &message); err != nil || message.Message == "" {
+			return false
+		}
+		_, _ = fmt.Fprintln(w, message.Message)
+		return true
+	}
+	return false
+}
+
+func renderList(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) bool {
+	raw, ok := body[shape.Key]
 	if !ok {
 		return false
 	}
@@ -160,22 +180,57 @@ func renderTable(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) bo
 		return false
 	}
 	if len(rows) == 0 {
-		_, _ = fmt.Fprintf(w, "No %s\n", table.Key)
+		_, _ = fmt.Fprintln(w, "None")
 		return true
 	}
 
+	columns := shape.Columns
+	if len(columns) == 0 {
+		// A row whose type named nothing still prints, using whatever fits in a cell.
+		for name, value := range rows[0] {
+			if _, nested := value.(map[string]any); !nested {
+				columns = append(columns, name)
+			}
+		}
+		sort.Strings(columns)
+	}
+
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	headings := make([]string, 0, len(table.Columns))
-	for _, column := range table.Columns {
+	headings := make([]string, 0, len(columns))
+	for _, column := range columns {
 		headings = append(headings, strings.ToUpper(strings.ReplaceAll(column, "_", " ")))
 	}
 	_, _ = fmt.Fprintln(tw, strings.Join(headings, "\t"))
 	for _, row := range rows {
-		cells := make([]string, 0, len(table.Columns))
-		for _, column := range table.Columns {
+		cells := make([]string, 0, len(columns))
+		for _, column := range columns {
 			cells = append(cells, cell(row[column]))
 		}
 		_, _ = fmt.Fprintln(tw, strings.Join(cells, "\t"))
+	}
+	_ = tw.Flush()
+	return true
+}
+
+func renderItem(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) bool {
+	raw, ok := body[shape.Key]
+	if !ok {
+		return false
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return false
+	}
+
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, name := range names {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\n", strings.ReplaceAll(name, "_", " "), cell(fields[name]))
 	}
 	_ = tw.Flush()
 	return true

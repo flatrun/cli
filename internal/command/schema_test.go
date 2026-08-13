@@ -29,7 +29,7 @@ const testSpec = `{
         "operationId": "get-backups",
         "parameters": [{"name": "deployment", "in": "query", "schema": {"type": "string"}}],
         "responses": {"200": {"description": "Success", "content": {"application/json": {
-          "schema": {"$ref": "#/components/schemas/api.BackupListResponse"}}}}}
+          "schema": {"$ref": "#/components/schemas/api.ListOfBackup"}}}}}
       }
     }
   },
@@ -43,10 +43,14 @@ const testSpec = `{
         "description": {"type": "string"}
       }
     },
-    "api.BackupListResponse": {
+    "api.ListOfBackup": {
       "type": "object",
-      "x-property-order": ["backups"],
-      "properties": {"backups": {"type": "array", "items": {"$ref": "#/components/schemas/backup.Backup"}}}
+      "x-render": "list",
+      "x-property-order": ["items", "total"],
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "#/components/schemas/backup.Backup"}},
+        "total": {"type": "integer"}
+      }
     },
     "backup.Backup": {
       "type": "object",
@@ -140,7 +144,9 @@ func TestUnknownQueryParameterIsRefused(t *testing.T) {
 // as a table.
 func TestAnswerIsRenderedFromTheDescription(t *testing.T) {
 	isolateCache(t)
-	reply := `{"backups":[
+	reply := `{"items":[
+      {"id":"b-1","deployment_name":"shop","status":"complete","path":"/srv/b-1"},
+      {"id":"b-2","deployment_name":"blog","status":"failed","path":"/srv/b-2"}],"total":2,"backups":[
       {"id":"b-1","deployment_name":"shop","status":"complete","path":"/srv/b-1"},
       {"id":"b-2","deployment_name":"blog","status":"failed","path":"/srv/b-2"}]}`
 	server, _ := describingServer(t, reply)
@@ -162,7 +168,7 @@ func TestAnswerIsRenderedFromTheDescription(t *testing.T) {
 
 func TestJSONStillWinsOverTheTable(t *testing.T) {
 	isolateCache(t)
-	server, _ := describingServer(t, `{"backups":[{"id":"b-1","deployment_name":"shop","status":"complete"}]}`)
+	server, _ := describingServer(t, `{"items":[{"id":"b-1","deployment_name":"shop","status":"complete"}],"total":1}`)
 
 	code, stdout, stderr := runCLI(t, server, "backups", "list", "--json")
 	if code != 0 {

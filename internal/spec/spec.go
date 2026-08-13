@@ -59,6 +59,7 @@ type Schema struct {
 	Properties           map[string]*Schema `json:"properties"`
 	PropertyOrder        []string           `json:"x-property-order"`
 	Columns              []string           `json:"x-columns"`
+	Render               string             `json:"x-render"`
 	Required             []string           `json:"required"`
 	Description          string             `json:"description"`
 	AdditionalProperties *Schema            `json:"additionalProperties"`
@@ -185,41 +186,63 @@ func (s *Spec) QueryParams(op Operation) []string {
 	return names
 }
 
-// Table describes how to lay out an endpoint's answer: the key holding the rows, and the columns
-// the type asked for. Absent when the endpoint answers with something that is not a list of
-// objects, which is most of them until their handlers return declared types.
-type Table struct {
-	Key     string
+// Shape is how an endpoint's answer is meant to be presented. The agent says which of a small
+// set of shapes it answers in, so the CLI lays out a collection of anything the same way rather
+// than knowing a resource.
+type Shape struct {
+	// Kind is "list", "item", "message", or empty when the endpoint does not say.
+	Kind string
+	// Key holds the rows or the thing, within the answer.
+	Key string
+	// Columns are the fields of a row worth showing, in the order the type declares them.
 	Columns []string
 }
 
-func (s *Spec) Table(op Operation) (Table, bool) {
+// maxColumns keeps a wide type readable. Everything is still in --json.
+const maxColumns = 6
+
+func (s *Spec) Shape(op Operation) (Shape, bool) {
 	ok200, ok := op.Responses["200"]
 	if !ok {
-		return Table{}, false
+		return Shape{}, false
 	}
 	content, ok := ok200.Content["application/json"]
 	if !ok {
-		return Table{}, false
+		return Shape{}, false
 	}
 	schema := s.Resolve(content.Schema)
-	if schema == nil {
-		return Table{}, false
+	if schema == nil || schema.Render == "" {
+		return Shape{}, false
 	}
 
-	// The rows are a list somewhere in the answer, next to whatever else it carries.
+	shape := Shape{Kind: schema.Render}
 	for _, name := range propertyOrder(schema) {
 		property := schema.Properties[name]
-		if property == nil || property.Type != "array" || property.Items == nil {
+		if property == nil {
 			continue
 		}
-		row := s.Resolve(property.Items)
-		if row == nil || len(row.Columns) == 0 {
-			continue
+		switch schema.Render {
+		case "list":
+			if property.Type != "array" || property.Items == nil {
+				continue
+			}
+			shape.Key = name
+			if row := s.Resolve(property.Items); row != nil {
+				shape.Columns = row.Columns
+				if len(shape.Columns) > maxColumns {
+					shape.Columns = shape.Columns[:maxColumns]
+				}
+			}
+			return shape, true
+		case "item":
+			shape.Key = name
+			return shape, true
 		}
-		return Table{Key: name, Columns: row.Columns}, true
 	}
-	return Table{}, false
+	if schema.Render == "message" {
+		return shape, true
+	}
+	return Shape{}, false
 }
 
 func propertyOrder(schema *Schema) []string {
