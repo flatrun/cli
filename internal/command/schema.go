@@ -13,9 +13,8 @@ import (
 	"github.com/flatrun/cli/internal/spec"
 )
 
-// checkFields refuses a body field the endpoint does not accept, and a required one that is
-// missing, before anything is sent. The agent would refuse both, but a 400 from a server names
-// neither the field it wanted nor the one it did not understand.
+// checkFields refuses an unknown or missing field before anything is sent, since a 400 names
+// neither the field the agent wanted nor the one it did not understand.
 func checkFields(api *spec.Spec, op spec.Operation, sent fieldValues) error {
 	fields := api.Fields(op)
 	if len(fields) == 0 {
@@ -82,8 +81,7 @@ func checkQuery(api *spec.Spec, op spec.Operation, sent queryValues) error {
 	return nil
 }
 
-// closest is the nearest accepted name to what was typed, when one is near enough that it was
-// probably meant.
+// closest is the nearest accepted name to what was typed, when one is near enough to have been meant.
 func closest(typed string, candidates []string) string {
 	best, bestDistance := "", len(typed)/2+1
 	for _, candidate := range candidates {
@@ -114,7 +112,6 @@ func distance(a, b string) int {
 	return previous[len(b)]
 }
 
-// describeEndpoint prints what an endpoint takes, which is the answer to "what do I put in -f".
 func describeEndpoint(w io.Writer, api *spec.Spec, e endpoint, op spec.Operation) {
 	_, _ = fmt.Fprintln(w, invocation(e))
 	if op.Permission != "" {
@@ -139,8 +136,8 @@ func describeEndpoint(w io.Writer, api *spec.Spec, e endpoint, op spec.Operation
 	}
 }
 
-// renderAnswer lays out a response according to the shape the agent says it answers in. Nothing
-// here knows a resource: a list of certificates and a list of backups take the same path.
+// renderAnswer lays out a response by the shape the agent answers in, so a list of certificates
+// and a list of backups take the same path.
 func renderAnswer(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) bool {
 	shape, ok := api.Shape(op)
 	if !ok {
@@ -175,24 +172,42 @@ func renderList(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) 
 	if !ok {
 		return false
 	}
-	var rows []map[string]any
-	if err := json.Unmarshal(raw, &rows); err != nil {
+	var values []any
+	if err := json.Unmarshal(raw, &values); err != nil {
 		return false
 	}
-	if len(rows) == 0 {
+	if len(values) == 0 {
 		_, _ = fmt.Fprintln(w, "None")
 		return true
 	}
 
+	// A column heading over a single column of names is furniture. Names print as names.
+	rows := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		row, ok := value.(map[string]any)
+		if !ok {
+			for _, value := range values {
+				_, _ = fmt.Fprintln(w, cell(value))
+			}
+			return true
+		}
+		rows = append(rows, row)
+	}
+
 	columns := shape.Columns
 	if len(columns) == 0 {
-		// A row whose type named nothing still prints, using whatever fits in a cell.
 		for name, value := range rows[0] {
 			if _, nested := value.(map[string]any); !nested {
 				columns = append(columns, name)
 			}
 		}
 		sort.Strings(columns)
+	}
+	if len(columns) == 1 {
+		for _, row := range rows {
+			_, _ = fmt.Fprintln(w, cell(row[columns[0]]))
+		}
+		return true
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)

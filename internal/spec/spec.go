@@ -1,6 +1,5 @@
-// Package spec reads the description an agent serves of its own API: what an endpoint accepts,
-// what it requires, and which fields of its answer are worth putting in a table. Without it the
-// CLI can only pass fields through and hope; with it a mistyped field fails before the request.
+// Package spec reads the description an agent serves of its own API. Without it the CLI can only
+// pass fields through and hope.
 package spec
 
 import (
@@ -87,8 +86,7 @@ func (s *Spec) Resolve(schema *Schema) *Schema {
 	return schema
 }
 
-// Operation finds the description of one endpoint by method and path, where the path is the one
-// the CLI holds (`/deployments/:name`) rather than the spec's (`/api/deployments/{name}`).
+// Operation takes the path as the CLI holds it, `/deployments/:name`, not as the spec writes it.
 func (s *Spec) Operation(method, path string) (Operation, bool) {
 	op, ok := s.Paths[specPath(path)][strings.ToLower(method)]
 	return op, ok
@@ -112,8 +110,7 @@ type Field struct {
 	Help     string
 }
 
-// Fields are the body fields of an endpoint, in the order they are declared, so `--help` reads
-// the way the type does rather than alphabetically.
+// Fields are an endpoint's body fields in declaration order, so help reads the way the type does.
 func (s *Spec) Fields(op Operation) []Field {
 	if op.RequestBody == nil {
 		return nil
@@ -186,15 +183,11 @@ func (s *Spec) QueryParams(op Operation) []string {
 	return names
 }
 
-// Shape is how an endpoint's answer is meant to be presented. The agent says which of a small
-// set of shapes it answers in, so the CLI lays out a collection of anything the same way rather
-// than knowing a resource.
+// Shape is how an endpoint's answer is presented: "list", "item", "message", or empty when the
+// agent does not say. Key holds the rows or the thing within the answer.
 type Shape struct {
-	// Kind is "list", "item", "message", or empty when the endpoint does not say.
-	Kind string
-	// Key holds the rows or the thing, within the answer.
-	Key string
-	// Columns are the fields of a row worth showing, in the order the type declares them.
+	Kind    string
+	Key     string
 	Columns []string
 }
 

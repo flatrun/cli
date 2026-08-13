@@ -214,8 +214,6 @@ func runAliasedEndpoint(plural, singular string, args []string, stdout, stderr i
 	return 2
 }
 
-// explainEndpoint answers "what does this take" from the agent's own description, rather than
-// leaving a caller to read the agent's source or guess at field names.
 func explainEndpoint(family, op string, stdout, stderr io.Writer) int {
 	e, ok := findEndpoint(family, op)
 	if !ok {

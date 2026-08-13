@@ -9,19 +9,16 @@ import (
 	"time"
 )
 
-// Fetcher reads the description from an agent.
 type Fetcher interface {
 	Do(ctx context.Context, method, path string, payload any) ([]byte, error)
 }
 
-// cacheTTL is how long a cached description is used before asking again. An agent's API changes
-// when it is upgraded, which is rare, so this only has to be short enough that an upgrade is
-// noticed the same day.
+// An agent's API changes only when it is upgraded, so this need only be short enough that an
+// upgrade is noticed the same day.
 const cacheTTL = 12 * time.Hour
 
-// Load returns the description of the agent at baseURL, from the cache when it is recent enough
-// and from the agent otherwise. An agent too old to describe itself returns nil rather than an
-// error: the CLI still works without a description, it just cannot check anything.
+// Load returns nil for an agent too old to describe itself: the CLI works without a description,
+// it just cannot check anything.
 func Load(ctx context.Context, client Fetcher, baseURL string) *Spec {
 	path := cachePath(baseURL)
 	if raw, err := readFresh(path); err == nil {
@@ -60,7 +57,7 @@ func write(path string, raw []byte) {
 	_ = os.WriteFile(path, raw, 0644)
 }
 
-// cachePath keys the cache by agent, since one profile's agent is not another's.
+// cachePath keys the cache by agent.
 func cachePath(baseURL string) string {
 	sum := sha256.Sum256([]byte(baseURL))
 	name := hex.EncodeToString(sum[:8]) + ".json"

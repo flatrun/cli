@@ -219,3 +219,30 @@ func TestCommandsWorkWithoutADescription(t *testing.T) {
 		t.Fatalf("path = %s", got.path)
 	}
 }
+
+// A column heading over one column of names is furniture, so names print as names.
+func TestNamesPrintAsLinesNotATable(t *testing.T) {
+	isolateCache(t)
+	spec := strings.Replace(testSpec,
+		`"x-columns": ["id", "deployment_name", "status"]`,
+		`"x-columns": ["id"]`, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/openapi.json") {
+			_, _ = w.Write([]byte(spec))
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[{"id":"b-1"},{"id":"b-2"}],"total":2}`))
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runCLI(t, server, "backups", "list")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if strings.Contains(stdout, "ID") {
+		t.Fatalf("one column needs no heading, got:\n%s", stdout)
+	}
+	if stdout != "b-1\nb-2\n" {
+		t.Fatalf("expected one name per line, got:\n%q", stdout)
+	}
+}
