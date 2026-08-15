@@ -167,6 +167,21 @@ sends a boolean and `-f ports=[8080]` sends an array. The two body forms cannot 
 flatrun deployment logs my-api -q service=web -q tail=200
 ```
 
+## How output is laid out
+
+If the agent describes the answer, that description decides the layout. If it does not, the client
+maps the JSON itself:
+
+| What comes back | What prints |
+|---|---|
+| Array of objects | A table, columns taken from the first row |
+| Array of scalars | One per line |
+| A single column | One per line, no heading |
+| Empty array | `None` |
+| No array, or more than one | The raw JSON |
+
+`--json` overrides all of it and prints the answer untouched.
+
 ## Listing what exists
 
 ```bash

@@ -120,6 +120,12 @@ flatrun settings update --data @settings.json
 A field value that reads as JSON is sent as JSON: `-f enabled=true` sends a boolean, `-f retention=7`
 sends a number.
 
+### Output
+
+If the agent describes the answer, that decides the layout. Otherwise an array of objects prints as
+a table, an array of scalars one per line, an empty one as `None`, and anything else as raw JSON.
+`--json` overrides all of it.
+
 ### Driving it from a script or an agent
 
 `--json` on any listing prints every command with its method, path and arguments:
