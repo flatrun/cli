@@ -96,7 +96,50 @@ flatrun container exec abc123 -- sh -c 'printenv | sort'
 
 `deployment action` runs a quick action defined on the deployment; `deployment actions` lists them. `deployment exec` runs an ad-hoc command instead: the command follows `--`, and the service is chosen positionally or with `--service` (a single-service deployment is resolved automatically, a multi-service one must be named). Both run in the service container, honor the deployment's protected-mode rules, and surface the command's output (including on a non-zero exit).
 
-Call any backend endpoint while a polished command is still pending:
+### Every other resource
+
+The commands above are shaped by hand because they print tables worth reading. Every other agent
+endpoint is `flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's routes.
+
+```bash
+flatrun                       # the resources
+flatrun backups               # what backups can do
+flatrun backup list           # singular and plural both work
+flatrun certificates renew shop.example.com
+flatrun deployment logs my-api -q service=web -q tail=200
+```
+
+Bodies go in as fields or as JSON:
+
+```bash
+flatrun domains create -f domain=shop.example.com -f deployment=shop
+flatrun settings update --data '{"backups":{"enabled":true}}'
+flatrun settings update --data @settings.json
+```
+
+A field value that reads as JSON is sent as JSON: `-f enabled=true` sends a boolean, `-f retention=7`
+sends a number.
+
+### Output
+
+If the agent describes the answer, that decides the layout. Otherwise an array of objects prints as
+a table, an array of scalars one per line, an empty one as `None`, and anything else as raw JSON.
+`--json` overrides all of it.
+
+### Driving it from a script or an agent
+
+`--json` on any listing prints every command with its method, path and arguments:
+
+```bash
+flatrun --json | jq '.[] | select(.family == "backups")'
+flatrun backups --json
+```
+
+Add `--json` to any command for the raw response.
+
+### The raw bridge
+
+For anything the table does not cover, such as a streaming endpoint:
 
 ```bash
 flatrun api get /settings

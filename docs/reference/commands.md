@@ -130,9 +130,73 @@ flatrun container restart CONTAINER_ID
 flatrun container delete CONTAINER_ID
 ```
 
+## Every other resource
+
+The families above are shaped by hand. Every other agent endpoint is
+`flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's routes.
+
+```bash
+flatrun                     # the resources
+flatrun backups             # what backups can do
+flatrun backup list         # singular and plural both work
+flatrun backups list
+flatrun backups restore BACKUP_ID
+flatrun certificates renew shop.example.com
+```
+
+Operation names follow the endpoint: a collection is `list`, one item is `get`, and a sub-resource
+keeps its noun (`log-sources`, `actions`, `jobs`). Where a read and a write share a path, the read
+keeps the plain name (`log-sources`, `log-sources-update`). Where a verb applies to one item or to
+all of them, the targeted one is plain, so `certificates renew DOMAIN` renews one and
+`certificates renew-all` renews everything.
+
+### Sending a body
+
+```bash
+flatrun domains create -f domain=shop.example.com -f deployment=shop
+flatrun settings update --data '{"backups":{"enabled":true}}'
+flatrun settings update --data @settings.json
+```
+
+`-f name=value` is repeatable. A value that reads as JSON is sent as JSON, so `-f enabled=true`
+sends a boolean and `-f ports=[8080]` sends an array. The two body forms cannot be combined.
+
+### Query parameters
+
+```bash
+flatrun deployment logs my-api -q service=web -q tail=200
+```
+
+## How output is laid out
+
+If the agent describes the answer, that description decides the layout. If it does not, the client
+maps the JSON itself:
+
+| What comes back | What prints |
+|---|---|
+| Array of objects | A table, columns taken from the first row |
+| Array of scalars | One per line |
+| A single column | One per line, no heading |
+| Empty array | `None` |
+| No array, or more than one | The raw JSON |
+
+`--json` overrides all of it and prints the answer untouched.
+
+## Listing what exists
+
+```bash
+flatrun                       # the resources
+flatrun backups               # one resource
+flatrun --json                # every command as JSON
+flatrun backups --json        # one family as JSON
+```
+
+The JSON gives each command's family, operation, method, path, arguments and exact invocation,
+which is what a script or an agent needs to use the CLI without reading this page.
+
 ## Raw API
 
-Use the raw API bridge while a polished command is still pending:
+Use the raw API bridge for anything the table does not cover, such as a streaming endpoint:
 
 ```bash
 flatrun api get /settings
