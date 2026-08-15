@@ -246,3 +246,33 @@ func TestNamesPrintAsLinesNotATable(t *testing.T) {
 		t.Fatalf("expected one name per line, got:\n%q", stdout)
 	}
 }
+
+// A required field is required however the body was given, so --data is held to it too.
+func TestRequiredFieldIsCheckedWhateverCarriesTheBody(t *testing.T) {
+	isolateCache(t)
+	server, got := describingServer(t, `{"message":"created"}`)
+
+	code, _, stderr := runCLI(t, server, "backups", "create", "--data", `{"description":"nightly"}`)
+	if code == 0 {
+		t.Fatal("a body missing a required field should fail")
+	}
+	if got.path != "" {
+		t.Fatal("nothing should have been sent")
+	}
+	if !strings.Contains(stderr, "deployment_name") {
+		t.Fatalf("the error should name the missing field, got %s", stderr)
+	}
+}
+
+func TestNoBodyAtAllStillReportsWhatIsRequired(t *testing.T) {
+	isolateCache(t)
+	server, _ := describingServer(t, `{"message":"created"}`)
+
+	code, _, stderr := runCLI(t, server, "backups", "create")
+	if code == 0 {
+		t.Fatal("an endpoint with a required field should not accept an empty body")
+	}
+	if !strings.Contains(stderr, "deployment_name") {
+		t.Fatalf("the error should name the missing field, got %s", stderr)
+	}
+}

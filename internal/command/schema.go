@@ -14,10 +14,16 @@ import (
 )
 
 // checkFields refuses an unknown or missing field before anything is sent, since a 400 names
-// neither the field the agent wanted nor the one it did not understand.
-func checkFields(api *spec.Spec, op spec.Operation, sent fieldValues) error {
+// neither the field the agent wanted nor the one it did not understand. It reads the body being
+// sent rather than the flags it came from, so --data is held to the same requirements as -f.
+func checkFields(api *spec.Spec, op spec.Operation, payload any) error {
 	fields := api.Fields(op)
 	if len(fields) == 0 {
+		return nil
+	}
+	sent, ok := payload.(map[string]any)
+	if payload != nil && !ok {
+		// A body that is not an object, such as a bare array, has no fields to check.
 		return nil
 	}
 
@@ -53,7 +59,7 @@ func checkFields(api *spec.Spec, op spec.Operation, sent fieldValues) error {
 			}
 		}
 	}
-	if len(missing) > 0 && len(sent) > 0 {
+	if len(missing) > 0 {
 		return fmt.Errorf("missing required field %s", strings.Join(missing, ", "))
 	}
 	return nil

@@ -34,8 +34,6 @@ type endpoint struct {
 
 func (e endpoint) command() string { return invocation(e) }
 
-func (e endpoint) writes() bool { return e.method != "GET" }
-
 // resolvePath substitutes the positional arguments into the path parameters.
 func (e endpoint) resolvePath(args []string) (string, error) {
 	if len(args) != len(e.args) {
@@ -46,9 +44,23 @@ func (e endpoint) resolvePath(args []string) (string, error) {
 		if args[i] == "" {
 			return "", fmt.Errorf("%s cannot be empty: %s", strings.ToUpper(name), e.command())
 		}
-		path = strings.Replace(path, ":"+name, url.PathEscape(args[i]), 1)
+		if strings.Contains(path, ":"+name) {
+			path = strings.Replace(path, ":"+name, url.PathEscape(args[i]), 1)
+			continue
+		}
+		// A wildcard stands for the rest of the path, so its separators are structure and only
+		// what sits between them is escaped.
+		path = strings.Replace(path, "*"+name, escapeSubPath(args[i]), 1)
 	}
 	return path, nil
+}
+
+func escapeSubPath(value string) string {
+	segments := strings.Split(value, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	return strings.Join(segments, "/")
 }
 
 func findEndpoint(family, op string) (endpoint, bool) {
@@ -174,9 +186,6 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 				if op, found := api.Operation(e.method, e.path); found {
 					operation = op
 					described = true
-					if err := checkFields(api, op, fields); err != nil {
-						return nil, err
-					}
 					if err := checkQuery(api, op, query); err != nil {
 						return nil, err
 					}
@@ -186,9 +195,14 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 			if len(query) > 0 {
 				path += "?" + url.Values(query).Encode()
 			}
-			payload, err := requestBody(dataArg, fields, e)
+			payload, err := requestBody(dataArg, fields)
 			if err != nil {
 				return nil, err
+			}
+			if described {
+				if err := checkFields(api, operation, payload); err != nil {
+					return nil, err
+				}
 			}
 			return client.Do(ctx, e.method, path, payload)
 		},
@@ -243,7 +257,7 @@ func explainEndpoint(family, op string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func requestBody(dataArg string, fields fieldValues, e endpoint) (any, error) {
+func requestBody(dataArg string, fields fieldValues) (any, error) {
 	if dataArg != "" && len(fields) > 0 {
 		return nil, fmt.Errorf("use --data or -f, not both")
 	}
@@ -265,11 +279,7 @@ func requestBody(dataArg string, fields fieldValues, e endpoint) (any, error) {
 	if len(fields) > 0 {
 		return map[string]any(fields), nil
 	}
-	if e.writes() {
-		// A write with no body is normal here: restarting a deployment or renewing a
-		// certificate carries nothing.
-		return nil, nil
-	}
+	// A write with no body is normal: restarting a deployment carries nothing.
 	return nil, nil
 }
 

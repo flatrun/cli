@@ -293,8 +293,35 @@ func TestEveryGeneratedCommandIsReachableAndUnique(t *testing.T) {
 		if !ok || found.path != e.path {
 			t.Errorf("%q does not dispatch back to %s", key, e.path)
 		}
-		if strings.Count(e.path, ":") != len(e.args) {
-			t.Errorf("%s has %d path parameters but %d arguments", e.path, strings.Count(e.path, ":"), len(e.args))
+		// A parameter is written :name, or *name when it holds the rest of the path.
+		params := strings.Count(e.path, ":") + strings.Count(e.path, "*")
+		if params != len(e.args) {
+			t.Errorf("%s has %d path parameters but %d arguments", e.path, params, len(e.args))
 		}
+	}
+}
+
+// A wildcard holds the rest of the path, so its separators are structure and must survive.
+func TestWildcardArgumentKeepsItsSeparators(t *testing.T) {
+	server, got := recordingServer(t, `{}`)
+
+	code, _, stderr := runCLI(t, server, "deployments", "files-get", "shop", "src/app/main.go", "--json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if got.path != "/api/deployments/shop/files/src/app/main.go" {
+		t.Fatalf("path = %s", got.path)
+	}
+}
+
+func TestWildcardArgumentStillEscapesEachSegment(t *testing.T) {
+	server, got := recordingServer(t, `{}`)
+
+	code, _, stderr := runCLI(t, server, "deployments", "files-get", "shop", "a b/c?d", "--json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(got.rawURI, "a%20b/c%3Fd") {
+		t.Fatalf("the segments were not escaped: %s", got.rawURI)
 	}
 }
