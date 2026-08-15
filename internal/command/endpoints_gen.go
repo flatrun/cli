@@ -200,7 +200,6 @@ var generatedEndpoints = []endpoint{
 	{family: "object-stores", op: "objects-create", method: "POST", path: "/object-stores/:name/objects", args: []string{"name"}},
 	{family: "object-stores", op: "objects-download", method: "GET", path: "/object-stores/:name/objects/download", args: []string{"name"}},
 	{family: "object-stores", op: "replicate", method: "POST", path: "/object-stores/:name/replicate", args: []string{"name"}},
-	{family: "openapi.json", op: "list", method: "GET", path: "/openapi.json", args: nil},
 	{family: "plans", op: "list", method: "GET", path: "/plans", args: nil},
 	{family: "plans", op: "delete", method: "DELETE", path: "/plans/:id", args: []string{"id"}},
 	{family: "plans", op: "get", method: "GET", path: "/plans/:id", args: []string{"id"}},

@@ -276,3 +276,44 @@ func TestNoBodyAtAllStillReportsWhatIsRequired(t *testing.T) {
 		t.Fatalf("the error should name the missing field, got %s", stderr)
 	}
 }
+
+// An agent that has not typed an endpoint, or is too old to describe itself at all, should still
+// get a table rather than a wall of JSON.
+func TestUndescribedListStillPrintsAsATable(t *testing.T) {
+	isolateCache(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/openapi.json") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"backups":[{"id":"b-1","deployment_name":"shop","status":"complete"}]}`))
+	}))
+	defer server.Close()
+
+	code, stdout, stderr := runCLI(t, server, "backups", "list")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "ID") || !strings.Contains(stdout, "b-1") {
+		t.Fatalf("expected a table, got:\n%s", stdout)
+	}
+}
+
+// Columns follow the order the answer wrote them in, since alphabetical buries the identifier.
+func TestInferredColumnsKeepTheAnswersOrder(t *testing.T) {
+	isolateCache(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/openapi.json") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"backups":[{"id":"b-1","zone":"eu","alpha":"a"}]}`))
+	}))
+	defer server.Close()
+
+	_, stdout, _ := runCLI(t, server, "backups", "list")
+	heading := strings.SplitN(stdout, "\n", 2)[0]
+	if strings.Index(heading, "ID") > strings.Index(heading, "ALPHA") {
+		t.Fatalf("the identifier should come first, got %q", heading)
+	}
+}

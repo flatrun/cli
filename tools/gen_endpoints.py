@@ -16,10 +16,13 @@ WRITE_VERB = {"POST": "create", "PUT": "update", "PATCH": "update", "DELETE": "d
 # Reached by the agent's own components, not by an operator.
 SKIP_PREFIXES = ("/api/internal", "/api/_internal", "/api/security/events/ingest", "/api/traffic/ingest")
 
+# The description of the API is not a resource of it.
+SKIP_PATHS = ("/api/openapi.json",)
+
 
 def endpoints(spec):
     for path, methods in spec["paths"].items():
-        if path.startswith(SKIP_PREFIXES):
+        if path.startswith(SKIP_PREFIXES) or path in SKIP_PATHS:
             continue
         for method, operation in methods.items():
             params = [p for p in operation.get("parameters", []) if p["in"] == "path"]

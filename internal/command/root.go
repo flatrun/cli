@@ -209,6 +209,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	default:
 		// Families the CLI does not shape by hand still reach the agent, through the
 		// generated table, so a new endpoint there is reachable here without a wrapper.
+		if singular, aliased := shapedAlias[args[0]]; aliased && len(args) > 1 {
+			if shapedCommand(singular, args[1]) {
+				return runShaped(singular, args[1:], stdout, stderr)
+			}
+		}
 		if knownFamily(args[0]) {
 			return runEndpoint(args[0], args[1:], stdout, stderr)
 		}

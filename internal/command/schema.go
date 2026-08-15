@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -145,14 +146,22 @@ func describeEndpoint(w io.Writer, api *spec.Spec, e endpoint, op spec.Operation
 // renderAnswer lays out a response by the shape the agent answers in, so a list of certificates
 // and a list of backups take the same path.
 func renderAnswer(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) bool {
-	shape, ok := api.Shape(op)
-	if !ok {
-		return false
-	}
-
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(data, &body); err != nil {
 		return false
+	}
+
+	shape, ok := spec.Shape{}, false
+	if api != nil {
+		shape, ok = api.Shape(op)
+	}
+	if !ok {
+		// An endpoint the agent has not typed yet, or an agent too old to describe itself. The
+		// answer still says which of its fields holds the rows.
+		shape, ok = inferShape(body)
+		if !ok {
+			return false
+		}
 	}
 
 	switch shape.Kind {
@@ -171,6 +180,31 @@ func renderAnswer(w io.Writer, api *spec.Spec, op spec.Operation, data []byte) b
 		return true
 	}
 	return false
+}
+
+// inferShape finds the rows in an answer that nothing described: the one field holding a list.
+func inferShape(body map[string]json.RawMessage) (spec.Shape, bool) {
+	// The shared list shape carries its rows under items, and the name it used to answer under
+	// beside them, so there is no ambiguity to resolve.
+	if _, ok := body["items"]; ok {
+		return spec.Shape{Kind: "list", Key: "items"}, true
+	}
+
+	found := ""
+	for name, raw := range body {
+		var rows []json.RawMessage
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			continue
+		}
+		if found != "" {
+			return spec.Shape{}, false
+		}
+		found = name
+	}
+	if found == "" {
+		return spec.Shape{}, false
+	}
+	return spec.Shape{Kind: "list", Key: found}, true
 }
 
 func renderList(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) bool {
@@ -202,12 +236,7 @@ func renderList(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) 
 
 	columns := shape.Columns
 	if len(columns) == 0 {
-		for name, value := range rows[0] {
-			if _, nested := value.(map[string]any); !nested {
-				columns = append(columns, name)
-			}
-		}
-		sort.Strings(columns)
+		columns = inferColumns(raw, rows[0])
 	}
 	if len(columns) == 1 {
 		for _, row := range rows {
@@ -232,6 +261,56 @@ func renderList(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) 
 	_ = tw.Flush()
 	return true
 }
+
+// inferColumns takes the scalar fields of a row, in the order the answer wrote them, since a map
+// has no order and alphabetical puts the identifier in the middle.
+func inferColumns(raw json.RawMessage, first map[string]any) []string {
+	scalar := map[string]bool{}
+	for name, value := range first {
+		switch value.(type) {
+		case map[string]any, []any:
+		default:
+			scalar[name] = true
+		}
+	}
+
+	var ordered []string
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	depth := 0
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		switch typed := token.(type) {
+		case json.Delim:
+			if typed == '{' || typed == '[' {
+				depth++
+			} else {
+				depth--
+			}
+			if depth < 2 && len(ordered) > 0 {
+				// Past the first row, so the order is settled.
+				return capColumns(ordered)
+			}
+		case string:
+			if depth == 2 && scalar[typed] {
+				ordered = append(ordered, typed)
+				scalar[typed] = false
+			}
+		}
+	}
+	return capColumns(ordered)
+}
+
+func capColumns(columns []string) []string {
+	if len(columns) > maxInferredColumns {
+		return columns[:maxInferredColumns]
+	}
+	return columns
+}
+
+const maxInferredColumns = 6
 
 func renderItem(w io.Writer, shape spec.Shape, body map[string]json.RawMessage) bool {
 	raw, ok := body[shape.Key]

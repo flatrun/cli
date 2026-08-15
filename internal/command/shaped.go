@@ -1,6 +1,9 @@
 package command
 
-import "strings"
+import (
+	"io"
+	"strings"
+)
 
 // shapedCommands are the commands written by hand rather than taken from the route table,
 // because they render a table, take flags shaped for the task, or read a command after `--`.
@@ -80,4 +83,27 @@ func invocation(e endpoint) string {
 		parts = append(parts, e.flags)
 	}
 	return strings.Join(parts, " ")
+}
+
+func shapedCommand(family, op string) bool {
+	for _, e := range shapedCommands {
+		if e.family == family && e.op == op {
+			return true
+		}
+	}
+	return false
+}
+
+// runShaped dispatches to the hand-written command, so `containers list` and `container list`
+// print the same thing rather than one table and one wall of JSON.
+func runShaped(family string, args []string, stdout, stderr io.Writer) int {
+	switch family {
+	case "deployment":
+		return runDeployment(args, stdout, stderr)
+	case "image":
+		return runImage(args, stdout, stderr)
+	case "container":
+		return runContainer(args, stdout, stderr)
+	}
+	return 2
 }
