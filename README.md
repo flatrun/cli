@@ -124,7 +124,8 @@ sends a number.
 
 If the agent describes the answer, that decides the layout. Otherwise an array of objects prints as
 a table, an array of scalars one per line, an empty one as `None`, and anything else as raw JSON.
-`--json` overrides all of it.
+Piping or redirecting gets the raw answer instead, since something is parsing it. `--json` forces
+it either way.
 
 ### Driving it from a script or an agent
 

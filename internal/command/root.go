@@ -32,6 +32,13 @@ var stdinIsTerminal = func() bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
+// A table is for someone reading it. Anything else on the other end of the pipe gets JSON, which
+// is what it could parse before any of this printed tables.
+var stdoutIsTerminal = func() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 var deploymentOperations = map[string]bool{
 	"restart": true,
 	"rebuild": true,
@@ -356,7 +363,7 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
-	if opts.JSON {
+	if opts.JSON || !stdoutIsTerminal() {
 		printResponse(stdout, true, data, "")
 		return 0
 	}

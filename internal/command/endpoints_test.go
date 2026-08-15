@@ -10,6 +10,14 @@ import (
 	"testing"
 )
 
+// asTerminal runs a command as though someone were watching, which is when a table is wanted.
+func asTerminal(t *testing.T) {
+	t.Helper()
+	previous := stdoutIsTerminal
+	stdoutIsTerminal = func() bool { return true }
+	t.Cleanup(func() { stdoutIsTerminal = previous })
+}
+
 type recordedRequest struct {
 	method string
 	path   string
@@ -39,6 +47,7 @@ func runCLI(t *testing.T, server *httptest.Server, args ...string) (int, string,
 	t.Helper()
 	t.Setenv("FLATRUN_URL", server.URL)
 	t.Setenv("FLATRUN_TOKEN", "secret")
+	asTerminal(t)
 	var stdout, stderr bytes.Buffer
 	code := Run(args, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
@@ -351,5 +360,28 @@ func TestUnknownResourceIsStillUnknown(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Unknown command") {
 		t.Fatalf("stderr = %s", stderr)
+	}
+}
+
+// A workflow reads stdout, and it read JSON before any of this printed tables.
+func TestPipedOutputStaysJSON(t *testing.T) {
+	for _, command := range [][]string{{"containers", "list"}, {"container", "list"}} {
+		server, _ := recordingServer(t, `{"containers":[{"id":"c-1","name":"web","state":"running"}]}`)
+		t.Setenv("FLATRUN_URL", server.URL)
+		t.Setenv("FLATRUN_TOKEN", "secret")
+
+		previous := stdoutIsTerminal
+		stdoutIsTerminal = func() bool { return false }
+		var stdout, stderr bytes.Buffer
+		code := Run(command, &stdout, &stderr)
+		stdoutIsTerminal = previous
+
+		if code != 0 {
+			t.Fatalf("%v: code=%d stderr=%s", command, code, stderr.String())
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+			t.Fatalf("%v: piped output should be JSON, got:\n%s", command, stdout.String())
+		}
 	}
 }

@@ -180,7 +180,8 @@ maps the JSON itself:
 | Empty array | `None` |
 | No array, or more than one | The raw JSON |
 
-`--json` overrides all of it and prints the answer untouched.
+None of it applies when the output is not a terminal: a pipe, a redirect or a CI step gets the raw
+answer, since something is parsing it. `--json` forces the raw answer either way.
 
 ## Listing what exists
 
