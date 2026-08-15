@@ -180,7 +180,8 @@ maps the JSON itself:
 | Empty array | `None` |
 | No array, or more than one | The raw JSON |
 
-`--json` overrides all of it and prints the answer untouched.
+This does not change with where the output goes: a pipe or a CI log gets what the terminal gets, so
+`flatrun deployment list | grep running` keeps working. `--json` is how you ask for the raw answer.
 
 ## Listing what exists
 

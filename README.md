@@ -124,7 +124,8 @@ sends a number.
 
 If the agent describes the answer, that decides the layout. Otherwise an array of objects prints as
 a table, an array of scalars one per line, an empty one as `None`, and anything else as raw JSON.
-`--json` overrides all of it.
+Piping changes nothing, so `flatrun deployment list | grep running` works. `--json` is how you ask
+for the raw answer.
 
 ### Driving it from a script or an agent
 

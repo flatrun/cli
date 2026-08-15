@@ -353,3 +353,53 @@ func TestUnknownResourceIsStillUnknown(t *testing.T) {
 		t.Fatalf("stderr = %s", stderr)
 	}
 }
+
+// Whatever a command printed before, it prints now: a pipe is not a reason to change the answer,
+// and `deployment list | grep running` has to keep working.
+func TestOutputDoesNotChangeWhenPiped(t *testing.T) {
+	server, _ := recordingServer(t, `{"containers":[{"id":"c-1","name":"web","state":"running"}]}`)
+	code, stdout, stderr := runCLI(t, server, "container", "list")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "CONTAINER ID") {
+		t.Fatalf("expected the table, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "web") {
+		t.Fatalf("expected the row, got:\n%s", stdout)
+	}
+}
+
+func TestJSONIsHowYouAskForTheAnswer(t *testing.T) {
+	server, _ := recordingServer(t, `{"containers":[{"id":"c-1","name":"web","state":"running"}]}`)
+	code, stdout, stderr := runCLI(t, server, "container", "list", "--json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatalf("--json should print the raw answer, got:\n%s", stdout)
+	}
+}
+
+// The exact payload a new agent sends for a deployment list: the shared shape, the name it used
+// to answer under, and the field it answered alongside. A CLI built before any of that has to
+// keep reading it.
+const newAgentDeploymentList = `{"deployments":[{"name":"trakli-staging","path":"/opt/flatrun/deployments/trakli-staging","status":"running","created_at":"2026-08-13T22:39:28Z","updated_at":"0001-01-01T00:00:00Z"}],"items":[{"name":"trakli-staging","path":"/opt/flatrun/deployments/trakli-staging","status":"running","created_at":"2026-08-13T22:39:28Z","updated_at":"0001-01-01T00:00:00Z"}],"path":"/opt/flatrun/deployments","total":1}`
+
+func TestOldCommandsReadANewAgentsAnswer(t *testing.T) {
+	for _, command := range [][]string{{"deployment", "list"}, {"deployments", "list"}} {
+		server, _ := recordingServer(t, newAgentDeploymentList)
+		code, stdout, stderr := runCLI(t, server, command...)
+		if code != 0 {
+			t.Fatalf("%v: code=%d stderr=%s", command, code, stderr)
+		}
+		if !strings.Contains(stdout, "NAME") || !strings.Contains(stdout, "trakli-staging") {
+			t.Fatalf("%v: expected the table, got:\n%s", command, stdout)
+		}
+		// The rows must come from one of the two names, not from both.
+		if strings.Count(stdout, "trakli-staging") != 1 {
+			t.Fatalf("%v: the deployment was listed twice:\n%s", command, stdout)
+		}
+	}
+}
