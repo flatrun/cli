@@ -65,6 +65,9 @@ type clientCommand struct {
 	flags       func(*flag.FlagSet)
 	run         func(context.Context, *flatrun.Client, []string) ([]byte, error)
 	render      func(io.Writer, []byte) error
+	// tabular says the rendering is a table, which is worth reading on a terminal and worth
+	// parsing anywhere else.
+	tabular bool
 }
 
 type deploymentListItem struct {
@@ -363,7 +366,7 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
 	}
-	if opts.JSON || !stdoutIsTerminal() {
+	if opts.JSON || (cmd.tabular && !stdoutIsTerminal()) {
 		printResponse(stdout, true, data, "")
 		return 0
 	}
@@ -625,7 +628,8 @@ func runDeploymentList(args []string, stdout, stderr io.Writer) int {
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ListDeployments(ctx)
 		},
-		render: renderDeploymentList,
+		render:  renderDeploymentList,
+		tabular: true,
 	}, args, stdout, stderr)
 }
 
@@ -649,7 +653,8 @@ func runDeploymentActions(args []string, stdout, stderr io.Writer) int {
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.GetDeployment(ctx, args[0])
 		},
-		render: renderQuickActions,
+		render:  renderQuickActions,
+		tabular: true,
 	}, args, stdout, stderr)
 }
 
@@ -1155,7 +1160,8 @@ func runImageList(args []string, stdout, stderr io.Writer) int {
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ListImages(ctx)
 		},
-		render: renderImageList,
+		render:  renderImageList,
+		tabular: true,
 	}, args, stdout, stderr)
 }
 
@@ -1219,7 +1225,8 @@ func runContainerList(args []string, stdout, stderr io.Writer) int {
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ListContainers(ctx)
 		},
-		render: renderContainerList,
+		render:  renderContainerList,
+		tabular: true,
 	}, args, stdout, stderr)
 }
 

@@ -385,3 +385,24 @@ func TestPipedOutputStaysJSON(t *testing.T) {
 		}
 	}
 }
+
+// A message and a command's own output are for whoever asked, terminal or not. Only a table is
+// held back, because something on the other end of a pipe would rather parse the answer.
+func TestPipedOutputKeepsMessagesReadable(t *testing.T) {
+	server, _ := recordingServer(t, `{"message":"Deployment restarted","status":"running"}`)
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+
+	previous := stdoutIsTerminal
+	stdoutIsTerminal = func() bool { return false }
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"deployment", "restart", "shop"}, &stdout, &stderr)
+	stdoutIsTerminal = previous
+
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Deployment restarted") {
+		t.Fatalf("a message should read as a message when piped, got:\n%s", stdout.String())
+	}
+}
