@@ -10,14 +10,6 @@ import (
 	"testing"
 )
 
-// asTerminal runs a command as though someone were watching, which is when a table is wanted.
-func asTerminal(t *testing.T) {
-	t.Helper()
-	previous := stdoutIsTerminal
-	stdoutIsTerminal = func() bool { return true }
-	t.Cleanup(func() { stdoutIsTerminal = previous })
-}
-
 type recordedRequest struct {
 	method string
 	path   string
@@ -47,7 +39,6 @@ func runCLI(t *testing.T, server *httptest.Server, args ...string) (int, string,
 	t.Helper()
 	t.Setenv("FLATRUN_URL", server.URL)
 	t.Setenv("FLATRUN_TOKEN", "secret")
-	asTerminal(t)
 	var stdout, stderr bytes.Buffer
 	code := Run(args, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
@@ -363,46 +354,30 @@ func TestUnknownResourceIsStillUnknown(t *testing.T) {
 	}
 }
 
-// A workflow reads stdout, and it read JSON before any of this printed tables.
-func TestPipedOutputStaysJSON(t *testing.T) {
-	for _, command := range [][]string{{"containers", "list"}, {"container", "list"}} {
-		server, _ := recordingServer(t, `{"containers":[{"id":"c-1","name":"web","state":"running"}]}`)
-		t.Setenv("FLATRUN_URL", server.URL)
-		t.Setenv("FLATRUN_TOKEN", "secret")
-
-		previous := stdoutIsTerminal
-		stdoutIsTerminal = func() bool { return false }
-		var stdout, stderr bytes.Buffer
-		code := Run(command, &stdout, &stderr)
-		stdoutIsTerminal = previous
-
-		if code != 0 {
-			t.Fatalf("%v: code=%d stderr=%s", command, code, stderr.String())
-		}
-		var decoded map[string]any
-		if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
-			t.Fatalf("%v: piped output should be JSON, got:\n%s", command, stdout.String())
-		}
+// Whatever a command printed before, it prints now: a pipe is not a reason to change the answer,
+// and `deployment list | grep running` has to keep working.
+func TestOutputDoesNotChangeWhenPiped(t *testing.T) {
+	server, _ := recordingServer(t, `{"containers":[{"id":"c-1","name":"web","state":"running"}]}`)
+	code, stdout, stderr := runCLI(t, server, "container", "list")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "CONTAINER ID") {
+		t.Fatalf("expected the table, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "web") {
+		t.Fatalf("expected the row, got:\n%s", stdout)
 	}
 }
 
-// A message and a command's own output are for whoever asked, terminal or not. Only a table is
-// held back, because something on the other end of a pipe would rather parse the answer.
-func TestPipedOutputKeepsMessagesReadable(t *testing.T) {
-	server, _ := recordingServer(t, `{"message":"Deployment restarted","status":"running"}`)
-	t.Setenv("FLATRUN_URL", server.URL)
-	t.Setenv("FLATRUN_TOKEN", "secret")
-
-	previous := stdoutIsTerminal
-	stdoutIsTerminal = func() bool { return false }
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"deployment", "restart", "shop"}, &stdout, &stderr)
-	stdoutIsTerminal = previous
-
+func TestJSONIsHowYouAskForTheAnswer(t *testing.T) {
+	server, _ := recordingServer(t, `{"containers":[{"id":"c-1","name":"web","state":"running"}]}`)
+	code, stdout, stderr := runCLI(t, server, "container", "list", "--json")
 	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
-	if !strings.Contains(stdout.String(), "Deployment restarted") {
-		t.Fatalf("a message should read as a message when piped, got:\n%s", stdout.String())
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(stdout), &decoded); err != nil {
+		t.Fatalf("--json should print the raw answer, got:\n%s", stdout)
 	}
 }

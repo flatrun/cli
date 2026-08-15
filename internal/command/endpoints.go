@@ -206,7 +206,6 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 			}
 			return client.Do(ctx, e.method, path, payload)
 		},
-		tabular: true,
 		render: func(w io.Writer, data []byte) error {
 			if renderAnswer(w, api, operation, data) {
 				return nil

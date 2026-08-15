@@ -1082,7 +1082,5 @@ func TestShortDockerTimeParsesDockerAndRFC3339Formats(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	// These tests read what a person would see on screen, which is when a table is printed.
-	stdoutIsTerminal = func() bool { return true }
 	os.Exit(m.Run())
 }

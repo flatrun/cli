@@ -12,7 +12,7 @@ All notable changes to the FlatRun CLI are documented in this file.
 
 - Commands read the agent's own description of its API where the agent serves one, so a mistyped field or query parameter fails before the request with the name it was probably meant to be, `COMMAND --help` lists the fields an endpoint takes and the permission it needs, and answers print as tables laid out from the types the agent returns. An agent that does not describe itself behaves as before.
 
-- Output is laid out for whoever is reading it: a table on a terminal, and the raw answer when the output is piped or redirected, which is what a script parsed before. `--json` forces the raw answer either way.
+- An answer nothing has described is still laid out: the field holding the rows becomes a table, an array of plain values prints one per line, and an empty one reads `None`. `--json` prints the raw answer, as before.
 
 ### Fixed
 
