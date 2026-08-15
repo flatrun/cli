@@ -209,17 +209,21 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	default:
 		// Families the CLI does not shape by hand still reach the agent, through the
 		// generated table, so a new endpoint there is reachable here without a wrapper.
-		if singular, aliased := shapedAlias[args[0]]; aliased && len(args) > 1 {
-			if shapedCommand(singular, args[1]) {
+		family, known := resolveFamily(args[0])
+		if !known {
+			_, _ = fmt.Fprintf(stderr, "Unknown command: %s\n\n", args[0])
+			usage(stderr)
+			return 2
+		}
+		if singular, aliased := shapedAlias[family]; aliased {
+			if len(args) > 1 && shapedCommand(singular, args[1]) {
+				return runShaped(singular, args[1:], stdout, stderr)
+			}
+			if len(args) == 1 {
 				return runShaped(singular, args[1:], stdout, stderr)
 			}
 		}
-		if knownFamily(args[0]) {
-			return runEndpoint(args[0], args[1:], stdout, stderr)
-		}
-		_, _ = fmt.Fprintf(stderr, "Unknown command: %s\n\n", args[0])
-		usage(stderr)
-		return 2
+		return runEndpoint(family, args[1:], stdout, stderr)
 	}
 }
 
@@ -227,22 +231,45 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "FlatRun CLI")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Usage:")
-	_, _ = fmt.Fprintln(w, "  flatrun <command> [options]")
+	_, _ = fmt.Fprintln(w, "  flatrun RESOURCE OPERATION [ARGS] [options]")
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Commands:")
-	_, _ = fmt.Fprintln(w, "  configure set       Save a local profile")
-	_, _ = fmt.Fprintln(w, "  configure list      List local profiles")
-	_, _ = fmt.Fprintln(w, "  health              Check FlatRun API health")
-	_, _ = fmt.Fprintln(w, "  deployment          Manage deployments and their services/images/containers")
-	_, _ = fmt.Fprintln(w, "  image               Manage Docker images")
-	_, _ = fmt.Fprintln(w, "  container           Manage containers")
-	_, _ = fmt.Fprintln(w, "  api                 Call any FlatRun API endpoint")
+	_, _ = fmt.Fprintln(w, "Resources:")
+	for _, line := range wrapNames(families(), 88) {
+		_, _ = fmt.Fprintln(w, "  "+line)
+	}
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Run `flatrun RESOURCE` for its operations. Singular and plural both work.")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Other commands:")
+	_, _ = fmt.Fprintln(w, "  configure           Save and switch between local profiles")
+	_, _ = fmt.Fprintln(w, "  health              Check that the agent is reachable")
+	_, _ = fmt.Fprintln(w, "  api                 Call any endpoint directly")
 	_, _ = fmt.Fprintln(w, "  version             Print CLI version")
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Resource families:")
-	_, _ = fmt.Fprintln(w, "  "+strings.Join(families(), ", "))
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Run `flatrun <family>` for its commands, or add --json for all of them.")
+	_, _ = fmt.Fprintln(w, "Add --json to any command for the raw answer, or to a listing for every command.")
+}
+
+func wrapNames(names []string, width int) []string {
+	var lines []string
+	current := ""
+	for i, name := range names {
+		if i < len(names)-1 {
+			name += ","
+		}
+		if current != "" && len(current)+1+len(name) > width {
+			lines = append(lines, current)
+			current = ""
+		}
+		if current == "" {
+			current = name
+			continue
+		}
+		current += " " + name
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
 }
 
 func globalFlagSet(name string, opts *globalOptions, output, debugOut io.Writer) *flag.FlagSet {

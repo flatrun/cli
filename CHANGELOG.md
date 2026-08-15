@@ -7,7 +7,7 @@ All notable changes to the FlatRun CLI are documented in this file.
 ### Added
 
 - Every agent endpoint is now a command: `flatrun FAMILY OPERATION [ARGS]`, covering 294 endpoints across 42 families. The table is generated from the agent's routes, so catching up is a regeneration rather than 294 hand-written wrappers.
-- `flatrun` lists the families, `flatrun FAMILY` lists its commands, and `--json` on either prints the same list with each command's method, path and arguments, for scripts and agents. One listing covers both the hand-shaped commands and the generated ones, and the singular families reach everything their plural counterparts do, so `deployment log-sources` works.
+- `flatrun` lists the resources, `flatrun RESOURCE` lists its commands, with singular and plural both accepted, and `--json` on either prints the same list with each command's method, path and arguments, for scripts and agents. One listing covers both the hand-shaped commands and the generated ones, and the singular families reach everything their plural counterparts do, so `deployment log-sources` works.
 - Request bodies from repeatable `-f name=value`, or `--data JSON` / `--data @file.json`. A field value that reads as JSON is sent as JSON, so `-f enabled=true` sends a boolean. Query parameters with repeatable `-q name=value`.
 
 - Commands read the agent's own description of its API where the agent serves one, so a mistyped field or query parameter fails before the request with the name it was probably meant to be, `COMMAND --help` lists the fields an endpoint takes and the permission it needs, and answers print as tables laid out from the types the agent returns. An agent that does not describe itself behaves as before.

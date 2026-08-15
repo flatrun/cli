@@ -102,9 +102,9 @@ The commands above are shaped by hand because they print tables worth reading. E
 endpoint is `flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's routes.
 
 ```bash
-flatrun                       # the families
+flatrun                       # the resources
 flatrun backups               # what backups can do
-flatrun backups list
+flatrun backup list           # singular and plural both work
 flatrun certificates renew shop.example.com
 flatrun deployment logs my-api -q service=web -q tail=200
 ```

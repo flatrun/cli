@@ -136,8 +136,9 @@ The families above are shaped by hand. Every other agent endpoint is
 `flatrun FAMILY OPERATION [ARGS]`, from a table generated out of the agent's routes.
 
 ```bash
-flatrun                     # the families
+flatrun                     # the resources
 flatrun backups             # what backups can do
+flatrun backup list         # singular and plural both work
 flatrun backups list
 flatrun backups restore BACKUP_ID
 flatrun certificates renew shop.example.com
@@ -169,8 +170,8 @@ flatrun deployment logs my-api -q service=web -q tail=200
 ## Listing what exists
 
 ```bash
-flatrun                       # the families
-flatrun backups               # one family
+flatrun                       # the resources
+flatrun backups               # one resource
 flatrun --json                # every command as JSON
 flatrun backups --json        # one family as JSON
 ```

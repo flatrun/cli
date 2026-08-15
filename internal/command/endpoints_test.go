@@ -325,3 +325,31 @@ func TestWildcardArgumentStillEscapesEachSegment(t *testing.T) {
 		t.Fatalf("the segments were not escaped: %s", got.rawURI)
 	}
 }
+
+// Nobody should have to remember whether the API called it backup or backups.
+func TestEitherSpellingReachesTheSameResource(t *testing.T) {
+	for _, spelling := range []string{"backups", "backup", "certificates", "certificate"} {
+		server, got := recordingServer(t, `{"items":[],"total":0}`)
+		code, _, stderr := runCLI(t, server, spelling, "list", "--json")
+		if code != 0 {
+			t.Fatalf("%s: code=%d stderr=%s", spelling, code, stderr)
+		}
+		if got.path == "" {
+			t.Errorf("%s reached nothing", spelling)
+		}
+	}
+}
+
+func TestUnknownResourceIsStillUnknown(t *testing.T) {
+	server, got := recordingServer(t, `{}`)
+	code, _, stderr := runCLI(t, server, "bakcups", "list")
+	if code == 0 {
+		t.Fatal("a misspelt resource should not be accepted")
+	}
+	if got.path != "" {
+		t.Fatal("nothing should have been sent")
+	}
+	if !strings.Contains(stderr, "Unknown command") {
+		t.Fatalf("stderr = %s", stderr)
+	}
+}

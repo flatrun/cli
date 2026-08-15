@@ -107,3 +107,20 @@ func runShaped(family string, args []string, stdout, stderr io.Writer) int {
 	}
 	return 2
 }
+
+// resolveFamily takes whichever way a resource was typed and answers with the one name the CLI
+// holds it under. Nobody should have to remember whether the API said backup or backups.
+func resolveFamily(typed string) (string, bool) {
+	if knownFamily(typed) {
+		return typed, true
+	}
+	if singular, ok := shapedAlias[typed]; ok {
+		return singular, true
+	}
+	for _, candidate := range []string{typed + "s", typed + "es", strings.TrimSuffix(typed, "s")} {
+		if candidate != typed && knownFamily(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
