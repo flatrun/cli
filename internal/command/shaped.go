@@ -28,6 +28,7 @@ var shapedCommands = []endpoint{
 	{family: "deployment", op: "action", method: "POST", path: "/deployments/:name/actions/:actionId", args: []string{"name", "actionId"}},
 	{family: "deployment", op: "exec", method: "POST", path: "/deployments/:name/exec", args: []string{"name"}, flags: "[SERVICE] -- COMMAND"},
 	{family: "deployment", op: "image set", method: "PUT", path: "/deployments/:name/compose", args: []string{"name", "service", "image"}, flags: "--deploy --operation"},
+	{family: "deployment", op: "files push", method: "POST", path: "/deployments/:name/files-push", args: []string{"name", "source", "destination"}, flags: "--delete"},
 
 	{family: "image", op: "list", method: "GET", path: "/images"},
 	{family: "image", op: "pull", method: "POST", path: "/images/pull", args: []string{"image"}, flags: "--credential-id"},

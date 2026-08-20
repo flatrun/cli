@@ -2,6 +2,13 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
+## [0.4.0-beta.4] - 2026-08-20
+
+### Added
+
+- Push a local directory to a deployment in one request, with optional destination cleanup
+- File operations from the agent are available through the generated command catalogue
+
 ## [0.3.0] - 2026-08-11
 
 ### Added

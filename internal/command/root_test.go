@@ -1,8 +1,11 @@
 package command
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +14,88 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestDeploymentFilesPushSendsOneArchiveRequest(t *testing.T) {
+	source := t.TempDir()
+	if err := os.Mkdir(filepath.Join(source, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "index.html"), []byte("home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "assets", "app.js"), []byte("app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodPost || r.URL.Path != "/api/deployments/whilesmart/files-push" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		fields := map[string]string{}
+		files := map[string]string{}
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if part.FormName() != "archive" {
+				value, _ := io.ReadAll(part)
+				fields[part.FormName()] = string(value)
+				continue
+			}
+			gzipReader, err := gzip.NewReader(part)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			tarReader := tar.NewReader(gzipReader)
+			for {
+				header, err := tarReader.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if header.Typeflag == tar.TypeReg {
+					content, _ := io.ReadAll(tarReader)
+					files[header.Name] = string(content)
+				}
+			}
+		}
+		if fields["destination"] != "sites/" || fields["delete"] != "true" {
+			t.Errorf("fields = %#v", fields)
+		}
+		if files["index.html"] != "home" || files["assets/app.js"] != "app" {
+			t.Errorf("files = %#v", files)
+		}
+		_, _ = w.Write([]byte(`{"item":{"message":"Pushed 2 files","destination":"sites/","deleted":true,"files":2}}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"deployment", "files", "push", "whilesmart", source, "sites/", "--delete"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
 
 func TestConfigureSetAndList(t *testing.T) {
 	t.Setenv("FLATRUN_CONFIG", filepath.Join(t.TempDir(), "config.json"))
