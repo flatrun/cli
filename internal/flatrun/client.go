@@ -233,6 +233,10 @@ func (c *Client) Do(ctx context.Context, method, path string, payload any) ([]by
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
+	return c.doRequest(req)
+}
+
+func (c *Client) doRequest(req *http.Request) ([]byte, error) {
 	if c.Debug != nil {
 		_, _ = fmt.Fprintf(c.Debug, "-> %s %s\n", req.Method, req.URL.String())
 	}

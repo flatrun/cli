@@ -593,6 +593,8 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 		return runDeploymentExec(args[1:], stdout, stderr)
 	case "image":
 		return runDeploymentImage(args[1:], stdout, stderr)
+	case "files":
+		return runDeploymentFiles(args[1:], stdout, stderr)
 	case "create":
 		return runDeploymentCreate(args[1:], stdout, stderr)
 	case "delete":
@@ -608,6 +610,25 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 	default:
 		return runAliasedEndpoint("deployments", "deployment", args, stdout, stderr)
 	}
+}
+
+func runDeploymentFiles(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "push" {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment files push DEPLOYMENT SOURCE DESTINATION [--delete]")
+		return 2
+	}
+	deleteMissing := false
+	return runClientCommand(clientCommand{
+		name:        "deployment files push",
+		usage:       "Usage: flatrun deployment files push DEPLOYMENT SOURCE DESTINATION [--delete]",
+		positionals: 3,
+		flags: func(fs *flag.FlagSet) {
+			fs.BoolVar(&deleteMissing, "delete", false, "Delete destination files missing from the source")
+		},
+		run: func(ctx context.Context, client *flatrun.Client, values []string) ([]byte, error) {
+			return client.PushDeploymentFiles(ctx, values[0], values[1], values[2], deleteMissing)
+		},
+	}, args[1:], stdout, stderr)
 }
 
 func runDeploymentList(args []string, stdout, stderr io.Writer) int {
