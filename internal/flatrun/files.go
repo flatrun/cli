@@ -98,12 +98,12 @@ func writeDirectoryArchive(writer *tar.Writer, source string) error {
 		if path == source {
 			return nil
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic links are not supported: %s", path)
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symbolic links are not supported: %s", path)
 		}
 		relative, err := filepath.Rel(source, path)
 		if err != nil {
