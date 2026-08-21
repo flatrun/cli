@@ -4,9 +4,15 @@
 
 ## Install
 
-Download the archive for your operating system and architecture from the
-[latest release](https://github.com/flatrun/cli/releases/latest), then place the extracted
-`flatrun` binary on your `PATH`.
+Install the latest release on Linux or macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flatrun/cli/main/scripts/install.sh | sudo sh
+```
+
+The installer detects amd64 or arm64, verifies the published SHA-256 checksum, and installs
+`flatrun` in `/usr/local/bin`. Pin a release with `FLATRUN_VERSION`, or choose another destination
+with `INSTALL_DIR`.
 
 Update an installed release in place:
 
