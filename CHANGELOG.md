@@ -8,6 +8,7 @@ All notable changes to the FlatRun CLI are documented in this file.
 
 - Push a local directory to a deployment in one request, with optional destination cleanup
 - File operations from the agent are available through the generated command catalogue
+- Update the installed CLI in place after verifying its published SHA-256 checksum
 
 ## [0.3.0] - 2026-08-11
 

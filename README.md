@@ -2,7 +2,22 @@
 
 `flatrun` is the command-line interface for FlatRun. It is intended to be the automation and operator surface for FlatRun in the same way cloud CLIs wrap a larger platform API.
 
-## Install from source
+## Install
+
+Download the archive for your operating system and architecture from the
+[latest release](https://github.com/flatrun/cli/releases/latest), then place the extracted
+`flatrun` binary on your `PATH`.
+
+Update an installed release in place:
+
+```bash
+flatrun update
+```
+
+Use `sudo flatrun update` when the binary is installed in a system directory such as
+`/usr/local/bin`. Check for a newer version without installing it with `flatrun update --check`.
+
+## Build from source
 
 ```bash
 make build

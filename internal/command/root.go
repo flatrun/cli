@@ -16,6 +16,7 @@ import (
 
 	"github.com/flatrun/cli/internal/config"
 	"github.com/flatrun/cli/internal/flatrun"
+	cliupdate "github.com/flatrun/cli/internal/update"
 	"gopkg.in/yaml.v3"
 )
 
@@ -194,6 +195,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "version", "--version":
 		_, _ = fmt.Fprintf(stdout, "%s\nbuild_time=%s\ngit_commit=%s\n", Version, BuildTime, GitCommit)
 		return 0
+	case "update":
+		return runUpdate(args[1:], stdout, stderr)
 	case "configure":
 		return runConfigure(args[1:], stdout, stderr)
 	case "health":
@@ -245,8 +248,41 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  health              Check that the agent is reachable")
 	_, _ = fmt.Fprintln(w, "  api                 Call any endpoint directly")
 	_, _ = fmt.Fprintln(w, "  version             Print CLI version")
+	_, _ = fmt.Fprintln(w, "  update              Update the CLI to the latest release")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Add --json to any command for the raw answer, or to a listing for every command.")
+}
+
+func runUpdate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	check := fs.Bool("check", false, "Check for an update without installing it")
+	if code, ok := parseFlagSet(fs, args); !ok {
+		return code
+	}
+	if fs.NArg() != 0 {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun update [--check]")
+		return 2
+	}
+	result, err := cliupdate.Run(context.Background(), Version, *check)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "Update failed: %v\n", err)
+		return 1
+	}
+	if result.Latest == result.Current {
+		_, _ = fmt.Fprintf(stdout, "FlatRun CLI %s is up to date.\n", result.Current)
+		return 0
+	}
+	if *check {
+		_, _ = fmt.Fprintf(stdout, "FlatRun CLI %s is available. Current version: %s.\n", result.Latest, result.Current)
+		return 0
+	}
+	if result.Updated {
+		_, _ = fmt.Fprintf(stdout, "Updated FlatRun CLI from %s to %s.\n", result.Current, result.Latest)
+		return 0
+	}
+	_, _ = fmt.Fprintf(stdout, "FlatRun CLI %s is up to date.\n", result.Current)
+	return 0
 }
 
 func wrapNames(names []string, width int) []string {

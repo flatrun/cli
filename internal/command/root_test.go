@@ -1100,6 +1100,34 @@ func TestVersionPrintsBuildMetadata(t *testing.T) {
 	}
 }
 
+func TestUpdateRejectsDevelopmentBuild(t *testing.T) {
+	oldVersion := Version
+	Version = "dev"
+	t.Cleanup(func() { Version = oldVersion })
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"update"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "development builds cannot be updated automatically") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
+func TestUpdateRejectsArguments(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{"update", "unexpected"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Usage: flatrun update [--check]") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
 func TestPrintResponsePrintsTopLevelArrayWhenNoFallback(t *testing.T) {
 	var stdout bytes.Buffer
 
