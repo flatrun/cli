@@ -60,7 +60,7 @@ jobs:
         run: make test
 
       - name: Test release installer
-        run: make test-installer
+        run: sudo env INSTALL_DIR=/usr/local/bin sh scripts/install-test.sh
 
   lint:
     runs-on: ubuntu-latest
