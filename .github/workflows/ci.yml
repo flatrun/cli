@@ -59,6 +59,9 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Test release installer
+        run: sudo env INSTALL_DIR=/usr/local/bin sh scripts/install-test.sh
+
   lint:
     runs-on: ubuntu-latest
     steps:

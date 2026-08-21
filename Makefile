@@ -1,4 +1,4 @@
-.PHONY: help deps build test fmt fmt-check vet lint lint-install test-coverage clean qa
+.PHONY: help deps build test test-installer fmt fmt-check vet lint lint-install test-coverage clean qa
 
 BINARY_NAME=flatrun
 VERSION?=$(shell cat VERSION 2>/dev/null || echo "dev")
@@ -12,6 +12,7 @@ help:
 	@echo "make deps          - Download dependencies"
 	@echo "make build         - Build CLI binary"
 	@echo "make test          - Run unit tests"
+	@echo "make test-installer - Install and run a pinned published release"
 	@echo "make test-coverage - Run tests with coverage report"
 	@echo "make fmt           - Format code with gofmt"
 	@echo "make fmt-check     - Check gofmt formatting"
@@ -29,6 +30,9 @@ build:
 
 test:
 	go test ./...
+
+test-installer:
+	sh scripts/install-test.sh
 
 test-coverage:
 	go test -coverprofile=coverage.out ./...
