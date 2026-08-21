@@ -59,6 +59,9 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Test release installer
+        run: make test-installer
+
   lint:
     runs-on: ubuntu-latest
     steps:
