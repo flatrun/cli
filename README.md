@@ -62,11 +62,33 @@ export FLATRUN_TOKEN=fr_xxx
 Or configure a local profile:
 
 ```bash
-flatrun configure set --url https://panel.example.com --token fr_xxx
-flatrun configure list
+flatrun profile add production --url https://panel.example.com --token fr_xxx
+flatrun profile use production
+flatrun profile list
 ```
 
+Log in through the agent without placing a password in shell history:
+
+```bash
+printf '%s\n' "$FLATRUN_PASSWORD" |
+  flatrun auth login --profile production --username operator --password-stdin
+```
+
+`configure` remains available as a compatibility alias for profile management.
 Config is stored at `~/.flatrun/config.json` by default. Use `FLATRUN_CONFIG` to override the path.
+
+## Terminal output
+
+Human-readable output uses terminal-aware colors and tables. Colors are disabled automatically when output is piped or redirected. Set `NO_COLOR=1` to disable them explicitly. `--json` always returns unstyled machine-readable output.
+
+Generate completion for a supported shell:
+
+```bash
+flatrun completion bash
+flatrun completion zsh
+flatrun completion fish
+flatrun completion powershell
+```
 
 ## Commands
 
@@ -172,6 +194,23 @@ Check API connectivity:
 
 ```bash
 flatrun health
+```
+
+Learn any operation from the connected agent, then print a request body to fill in:
+
+```bash
+flatrun deployments create --help
+flatrun deployments create --generate-cli-skeleton
+```
+
+Operations that declare plan support accept `--plan`. The command returns the changes without
+applying them:
+
+```bash
+flatrun deployments delete staging --plan \
+  -q delete_ssl=true \
+  -q delete_database=true \
+  -q delete_vhost=true
 ```
 
 See [docs](docs/README.md) for guides and command reference.

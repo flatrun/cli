@@ -17,10 +17,22 @@ const testSpec = `{
   "openapi": "3.1.0",
   "info": {"version": "0.4.0"},
   "paths": {
+	"/api/deployments": {
+	  "post": {
+		"operationId": "post-deployments",
+		"requestBody": {"required": true, "content": {"application/json": {
+		  "schema": {"type": "object", "required": ["name"], "properties": {
+			"name": {"type": "string"}, "image": {"type": "string"}
+		  }}
+		}}},
+		"responses": {"201": {"description": "Created"}}
+	  }
+	},
     "/api/backups": {
       "post": {
         "operationId": "post-backups",
         "x-permission": "backups:write",
+        "x-plan-supported": true,
         "requestBody": {"required": true, "content": {"application/json": {
           "schema": {"$ref": "#/components/schemas/backup.CreateBackupRequest"}}}},
         "responses": {"200": {"description": "Success"}}
@@ -188,10 +200,63 @@ func TestHelpShowsWhatAnEndpointTakes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
-	for _, want := range []string{"deployment_name", "required", "description", "backups:write"} {
+	for _, want := range []string{"deployment_name", "required", "description", "backups:write", "--plan", "--generate-cli-skeleton"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("help should mention %q, got:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestGenerateRequestSkeleton(t *testing.T) {
+	isolateCache(t)
+	server, got := describingServer(t, `{}`)
+
+	code, stdout, stderr := runCLI(t, server, "backups", "create", "--generate-cli-skeleton")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if got.method != "" {
+		t.Fatalf("skeleton made an API request with %s", got.method)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(stdout), &body); err != nil {
+		t.Fatalf("skeleton is not JSON: %v: %s", err, stdout)
+	}
+	if body["deployment_name"] != "" || body["description"] != "" {
+		t.Fatalf("unexpected skeleton: %#v", body)
+	}
+}
+
+func TestPlanAddsDocumentedQuery(t *testing.T) {
+	isolateCache(t)
+	server, got := describingServer(t, `{}`)
+
+	code, _, stderr := runCLI(t, server, "backups", "create", "--plan", "-f", "deployment_name=shop")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if got.query != "plan=true" {
+		t.Fatalf("query = %q", got.query)
+	}
+}
+
+func TestPluralShapedCommandCanPrintGeneratedSkeleton(t *testing.T) {
+	isolateCache(t)
+	server, got := describingServer(t, `{}`)
+
+	code, stdout, stderr := runCLI(t, server, "deployments", "create", "--generate-cli-skeleton")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if got.path != "" {
+		t.Fatalf("skeleton made a mutation request to %s", got.path)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(stdout), &body); err != nil {
+		t.Fatalf("skeleton is not JSON: %v: %s", err, stdout)
+	}
+	if _, ok := body["name"]; !ok {
+		t.Fatalf("skeleton = %#v", body)
 	}
 }
 

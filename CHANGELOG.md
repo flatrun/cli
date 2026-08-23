@@ -2,6 +2,23 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
+## [0.4.0] - 2026-08-23
+
+### Added
+
+- Per-operation help with request fields, types, accepted values, permissions, query parameters, and plan support
+- Request body skeleton generation for operations described by the connected agent
+- Plan mode for every operation that declares support in the agent API
+- Agent and CLI version reporting when a server profile is saved
+- Profile commands with explicit add, select, list, current, and remove operations
+- Login through username/password or API key without placing credentials in shell history
+- Terminal-aware colors, responsive tables, semantic statuses, and shell completion
+
+### Fixed
+
+- Image updates change the referenced environment variable instead of replacing a compose expression
+- Generated API flags remain available for commands that also have a task-specific CLI form
+
 ## [0.3.1] - 2026-08-21
 
 ### Added
