@@ -243,6 +243,7 @@ func TestGenerateRequestSkeletonStopsAtRecursiveSchema(t *testing.T) {
     "type": "object",
     "properties": {
       "deployment_name": {"type": "string"},
+      "level": {"type": "integer", "enum": [1, 2]},
       "parent": {"$ref": "#/components/schemas/Request"}
     }
   }}}
@@ -264,7 +265,7 @@ func TestGenerateRequestSkeletonStopsAtRecursiveSchema(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &body); err != nil {
 		t.Fatalf("skeleton is not JSON: %v: %s", err, stdout)
 	}
-	if body["deployment_name"] != "" || body["parent"] != nil {
+	if body["deployment_name"] != "" || body["level"] != float64(1) || body["parent"] != nil {
 		t.Fatalf("skeleton = %#v", body)
 	}
 }

@@ -120,7 +120,7 @@ type Schema struct {
 	Required             []string           `json:"required"`
 	Description          string             `json:"description"`
 	AdditionalProperties *Schema            `json:"additionalProperties"`
-	Enum                 []string           `json:"enum"`
+	Enum                 []any              `json:"enum"`
 }
 
 func Parse(raw []byte) (*Spec, error) {
@@ -208,10 +208,25 @@ func (s *Spec) Fields(op Operation) []Field {
 			Type:     typeName(property),
 			Required: required[name],
 			Help:     property.Description,
-			Accepted: append([]string(nil), property.Enum...),
+			Accepted: enumStrings(property.Enum),
 		})
 	}
 	return fields
+}
+
+func enumStrings(values []any) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			result = append(result, text)
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err == nil {
+			result = append(result, string(encoded))
+		}
+	}
+	return result
 }
 
 func typeName(schema *Schema) string {

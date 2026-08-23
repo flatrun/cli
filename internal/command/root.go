@@ -673,10 +673,10 @@ func runAuthLogin(args []string, stdout, stderr io.Writer) int {
 	client := flatrun.New(profile.URL, "", 30*time.Second, false)
 	body := map[string]string{}
 	if apiKeyStdin {
-		body["api_key"] = strings.TrimSpace(string(credential))
+		body["api_key"] = strings.TrimRight(string(credential), "\r\n")
 	} else {
 		body["username"] = username
-		body["password"] = strings.TrimSpace(string(credential))
+		body["password"] = strings.TrimRight(string(credential), "\r\n")
 	}
 	data, err := client.Raw(context.Background(), http.MethodPost, "/auth/login", body)
 	if err != nil {

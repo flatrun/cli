@@ -182,7 +182,7 @@ func TestAuthLoginStoresSessionTokenForProfile(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if body["username"] != "admin" || body["password"] != "correct-password" {
+			if body["username"] != "admin" || body["password"] != " correct-password " {
 				t.Fatalf("login body = %#v", body)
 			}
 			_, _ = w.Write([]byte(`{"token":"session-token","expires_in":86400,"token_type":"Bearer"}`))
@@ -200,7 +200,7 @@ func TestAuthLoginStoresSessionTokenForProfile(t *testing.T) {
 	}
 	previousStdin := stdin
 	previousTerminal := stdinIsTerminal
-	stdin = strings.NewReader("correct-password\n")
+	stdin = strings.NewReader(" correct-password \r\n")
 	stdinIsTerminal = func() bool { return false }
 	t.Cleanup(func() {
 		stdin = previousStdin
