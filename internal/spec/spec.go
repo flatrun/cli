@@ -51,16 +51,21 @@ func (s *Spec) Skeleton(op Operation) map[string]any {
 		return result
 	}
 	for _, field := range s.Fields(op) {
-		result[field.Name] = s.skeletonValue(schema.Properties[field.Name])
+		result[field.Name] = s.skeletonValue(schema.Properties[field.Name], map[*Schema]bool{schema: true})
 	}
 	return result
 }
 
-func (s *Spec) skeletonValue(schema *Schema) any {
+func (s *Spec) skeletonValue(schema *Schema, visiting map[*Schema]bool) any {
 	schema = s.Resolve(schema)
 	if schema == nil {
 		return nil
 	}
+	if visiting[schema] {
+		return nil
+	}
+	visiting[schema] = true
+	defer delete(visiting, schema)
 	if len(schema.Enum) > 0 {
 		return schema.Enum[0]
 	}
@@ -72,13 +77,16 @@ func (s *Spec) skeletonValue(schema *Schema) any {
 	case "array":
 		item := s.Resolve(schema.Items)
 		if item != nil && (item.Type == "object" || len(item.Properties) > 0) {
-			return []any{s.skeletonValue(item)}
+			if visiting[item] {
+				return []any{}
+			}
+			return []any{s.skeletonValue(item, visiting)}
 		}
 		return []any{}
 	case "object":
 		value := map[string]any{}
 		for name, property := range schema.Properties {
-			value[name] = s.skeletonValue(property)
+			value[name] = s.skeletonValue(property, visiting)
 		}
 		return value
 	default:

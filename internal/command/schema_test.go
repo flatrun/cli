@@ -227,6 +227,48 @@ func TestGenerateRequestSkeleton(t *testing.T) {
 	}
 }
 
+func TestGenerateRequestSkeletonStopsAtRecursiveSchema(t *testing.T) {
+	isolateCache(t)
+	const recursiveSpec = `{
+  "openapi": "3.1.0",
+  "info": {"version": "0.4.0"},
+  "paths": {"/api/backups": {"post": {
+    "operationId": "post-backups",
+    "requestBody": {"required": true, "content": {"application/json": {
+      "schema": {"$ref": "#/components/schemas/Request"}
+    }}},
+    "responses": {"200": {"description": "Success"}}
+  }}},
+  "components": {"schemas": {"Request": {
+    "type": "object",
+    "properties": {
+      "deployment_name": {"type": "string"},
+      "parent": {"$ref": "#/components/schemas/Request"}
+    }
+  }}}
+}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/openapi.json") {
+			_, _ = w.Write([]byte(recursiveSpec))
+			return
+		}
+		t.Fatal("skeleton made an API request")
+	}))
+	t.Cleanup(server.Close)
+
+	code, stdout, stderr := runCLI(t, server, "backups", "create", "--generate-cli-skeleton")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(stdout), &body); err != nil {
+		t.Fatalf("skeleton is not JSON: %v: %s", err, stdout)
+	}
+	if body["deployment_name"] != "" || body["parent"] != nil {
+		t.Fatalf("skeleton = %#v", body)
+	}
+}
+
 func TestPlanAddsDocumentedQuery(t *testing.T) {
 	isolateCache(t)
 	server, got := describingServer(t, `{}`)
