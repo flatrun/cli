@@ -16,7 +16,9 @@ import (
 
 	"github.com/flatrun/cli/internal/config"
 	"github.com/flatrun/cli/internal/flatrun"
+	"github.com/flatrun/cli/internal/presentation"
 	cliupdate "github.com/flatrun/cli/internal/update"
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
@@ -179,6 +181,100 @@ type proxyStatusInfo struct {
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
+	exitCode := 0
+	jsonListing := false
+	showVersion := false
+	root := &cobra.Command{
+		Use:           "flatrun",
+		Short:         "Manage FlatRun servers and deployments",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Args:          cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if jsonListing {
+				exitCode = runLegacy([]string{"--json"}, stdout, stderr)
+				return
+			}
+			if showVersion {
+				exitCode = runLegacy([]string{"--version"}, stdout, stderr)
+				return
+			}
+			usage(stdout)
+		},
+	}
+	root.Flags().BoolVar(&jsonListing, "json", false, "Print the command catalog as JSON")
+	root.Flags().BoolVar(&showVersion, "version", false, "Print CLI version")
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) { usage(stdout) })
+	legacyStderr := presentation.SemanticWriter(stderr)
+
+	familyNames := families()
+	names := append([]string{}, familyNames...)
+	for _, family := range familyNames {
+		for _, candidate := range []string{strings.TrimSuffix(family, "s"), strings.TrimSuffix(family, "es")} {
+			if _, ok := resolveFamily(candidate); ok {
+				names = append(names, candidate)
+			}
+		}
+	}
+	names = append(names, "profile", "configure", "health", "deployment", "image", "container", "api", "version", "update")
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		commandName := name
+		root.AddCommand(&cobra.Command{
+			Use:                commandName,
+			DisableFlagParsing: true,
+			Args:               cobra.ArbitraryArgs,
+			Run: func(cmd *cobra.Command, args []string) {
+				exitCode = runLegacy(append([]string{commandName}, args...), stdout, legacyStderr)
+			},
+		})
+	}
+	root.AddCommand(&cobra.Command{
+		Use:   "resources",
+		Short: "List every resource family",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			resourceUsage(stdout)
+		},
+	})
+	root.AddCommand(&cobra.Command{
+		Use:       "completion [bash|zsh|fish|powershell]",
+		Short:     "Generate shell completion",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch args[0] {
+			case "bash":
+				return root.GenBashCompletion(stdout)
+			case "zsh":
+				return root.GenZshCompletion(stdout)
+			case "fish":
+				return root.GenFishCompletion(stdout, true)
+			case "powershell":
+				return root.GenPowerShellCompletion(stdout)
+			}
+			return nil
+		},
+	})
+	root.SetArgs(args)
+	if err := root.Execute(); err != nil {
+		if len(args) > 0 && strings.Contains(err.Error(), "unknown command") {
+			_, _ = fmt.Fprintf(stderr, "Unknown command: %s\n", args[0])
+			return 2
+		}
+		_, _ = fmt.Fprintln(stderr, presentation.New(stderr).Error("Error: "+err.Error()))
+		return 2
+	}
+	return exitCode
+}
+
+func runLegacy(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stdout)
 		return 0
@@ -199,6 +295,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runUpdate(args[1:], stdout, stderr)
 	case "configure":
 		return runConfigure(args[1:], stdout, stderr)
+	case "profile":
+		return runProfile(args[1:], stdout, stderr)
+	case "auth":
+		return runAuth(args[1:], stdout, stderr)
 	case "health":
 		return runHealth(args[1:], stdout, stderr)
 	case "deployment":
@@ -220,6 +320,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		if singular, aliased := shapedAlias[family]; aliased {
 			if len(args) > 1 && shapedCommand(singular, args[1]) {
+				if len(args) > 2 && (args[2] == "--help" || args[2] == "-h") {
+					return explainEndpoint(family, args[1], stdout, stderr)
+				}
+				if usesGenericEndpointFlags(args[2:]) {
+					return runEndpoint(family, args[1:], stdout, stderr)
+				}
 				return runShaped(singular, args[1:], stdout, stderr)
 			}
 			if len(args) == 1 {
@@ -231,26 +337,64 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "FlatRun CLI")
+	view := presentation.New(w)
+	_, _ = fmt.Fprintln(w, view.Title("FlatRun CLI"))
+	_, _ = fmt.Fprintln(w, view.Muted("Manage deployments and infrastructure from one terminal."))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Usage:")
-	_, _ = fmt.Fprintln(w, "  flatrun RESOURCE OPERATION [ARGS] [options]")
+	_, _ = fmt.Fprintln(w, view.Heading("Usage:"))
+	_, _ = fmt.Fprintln(w, "  "+view.Command("flatrun RESOURCE OPERATION [ARGS] [options]"))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Resources:")
-	for _, line := range wrapNames(families(), 88) {
-		_, _ = fmt.Fprintln(w, "  "+line)
+	_, _ = fmt.Fprintln(w, view.Heading("Start here:"))
+	view.Table(w, []string{"TASK", "COMMAND"}, [][]string{
+		{"Show the active server", "flatrun profile current"},
+		{"Check the connection", "flatrun health"},
+		{"List deployments", "flatrun deployments list"},
+		{"Explore all resources", "flatrun resources"},
+		{"Learn an operation", "flatrun deployments create --help"},
+		{"Check for CLI updates", "flatrun update --check"},
+	})
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, view.Muted("Use --json for machine-readable output. Singular and plural resource names both work."))
+}
+
+func resourceUsage(w io.Writer) {
+	view := presentation.New(w)
+	_, _ = fmt.Fprintln(w, view.Title("FlatRun resources"))
+	_, _ = fmt.Fprintln(w, view.Muted("Run `flatrun RESOURCE` to list its operations."))
+	_, _ = fmt.Fprintln(w)
+	groups := []struct {
+		name      string
+		resources []string
+	}{
+		{"Applications", []string{"deployments", "containers", "images", "compose", "templates"}},
+		{"Infrastructure", []string{"cluster", "capacity", "databases", "networks", "ports", "proxy", "certificates", "dns", "volumes", "object-stores"}},
+		{"Operations", []string{"backups", "plans", "scheduler", "notifications", "alerts", "audit", "stats", "traffic", "health"}},
+		{"Access and security", []string{"auth", "users", "apikeys", "credentials", "registries", "source-credentials", "storage-credentials", "security"}},
+		{"Platform", []string{"agent", "server", "settings", "config", "setup", "plugins", "ai", "dashboards", "system", "infrastructure", "subdomain", "backup-destinations"}},
 	}
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Run `flatrun RESOURCE` for its operations. Singular and plural both work.")
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Other commands:")
-	_, _ = fmt.Fprintln(w, "  configure           Save and switch between local profiles")
-	_, _ = fmt.Fprintln(w, "  health              Check that the agent is reachable")
-	_, _ = fmt.Fprintln(w, "  api                 Call any endpoint directly")
-	_, _ = fmt.Fprintln(w, "  version             Print CLI version")
-	_, _ = fmt.Fprintln(w, "  update              Update the CLI to the latest release")
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Add --json to any command for the raw answer, or to a listing for every command.")
+	known := map[string]bool{}
+	for _, group := range groups {
+		for _, resource := range group.resources {
+			known[resource] = true
+		}
+		_, _ = fmt.Fprintln(w, view.Heading(group.name))
+		for _, line := range wrapNames(group.resources, 88) {
+			_, _ = fmt.Fprintln(w, "  "+line)
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+	remaining := []string{}
+	for _, resource := range families() {
+		if !known[resource] {
+			remaining = append(remaining, resource)
+		}
+	}
+	if len(remaining) > 0 {
+		_, _ = fmt.Fprintln(w, view.Heading("Other"))
+		for _, line := range wrapNames(remaining, 88) {
+			_, _ = fmt.Fprintln(w, "  "+line)
+		}
+	}
 }
 
 func runUpdate(args []string, stdout, stderr io.Writer) int {
@@ -427,6 +571,136 @@ func runConfigure(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+func runProfile(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun profile <add|use|list|current|remove>")
+		return 2
+	}
+	switch args[0] {
+	case "add":
+		return runConfigureSet(args[1:], stdout, stderr)
+	case "use":
+		return runConfigureUse(args[1:], stdout, stderr)
+	case "list":
+		return runConfigureList(args[1:], stdout, stderr)
+	case "current":
+		return runProfileCurrent(args[1:], stdout, stderr)
+	case "remove":
+		return runConfigureDelete(args[1:], stdout, stderr)
+	default:
+		_, _ = fmt.Fprintf(stderr, "Unknown profile command: %s\n", args[0])
+		return 2
+	}
+}
+
+func runProfileCurrent(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("profile current", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if code, ok := parseFlagSet(fs, args); !ok {
+		return code
+	}
+	if fs.NArg() != 0 {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun profile current")
+		return 2
+	}
+	cfg, err := config.Load(config.DefaultPath())
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	profile, ok := cfg.Profiles[cfg.CurrentProfile]
+	if !ok {
+		_, _ = fmt.Fprintln(stderr, "Error: no active profile")
+		return 1
+	}
+	_, _ = fmt.Fprintf(stdout, "%s\t%s\n", cfg.CurrentProfile, profile.URL)
+	return 0
+}
+
+func runAuth(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return runEndpoint("auth", args, stdout, stderr)
+	}
+	if args[0] != "login" {
+		return runEndpoint("auth", args, stdout, stderr)
+	}
+	return runAuthLogin(args[1:], stdout, stderr)
+}
+
+func runAuthLogin(args []string, stdout, stderr io.Writer) int {
+	profileName := ""
+	username := ""
+	passwordStdin := false
+	apiKeyStdin := false
+	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&profileName, "profile", "", "Profile name")
+	fs.StringVar(&username, "username", "", "Username")
+	fs.BoolVar(&passwordStdin, "password-stdin", false, "Read the password from stdin")
+	fs.BoolVar(&apiKeyStdin, "api-key-stdin", false, "Read an API key from stdin")
+	if code, ok := parseFlagSet(fs, args); !ok {
+		return code
+	}
+	if passwordStdin == apiKeyStdin || (passwordStdin && username == "") || (apiKeyStdin && username != "") {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun auth login [--profile PROFILE] (--username USERNAME --password-stdin | --api-key-stdin)")
+		return 2
+	}
+	if stdinIsTerminal() {
+		_, _ = fmt.Fprintln(stderr, "Error: --password-stdin requires piped input")
+		return 2
+	}
+	credential, err := io.ReadAll(stdin)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+
+	path := config.DefaultPath()
+	cfg, err := config.Load(path)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	if profileName == "" {
+		profileName = cfg.CurrentProfile
+	}
+	profile, ok := cfg.Profiles[profileName]
+	if !ok || profile.URL == "" {
+		_, _ = fmt.Fprintf(stderr, "Error: profile %q does not exist\n", profileName)
+		return 1
+	}
+
+	client := flatrun.New(profile.URL, "", 30*time.Second, false)
+	body := map[string]string{}
+	if apiKeyStdin {
+		body["api_key"] = strings.TrimRight(string(credential), "\r\n")
+	} else {
+		body["username"] = username
+		body["password"] = strings.TrimRight(string(credential), "\r\n")
+	}
+	data, err := client.Raw(context.Background(), http.MethodPost, "/auth/login", body)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	var response struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil || response.Token == "" {
+		_, _ = fmt.Fprintln(stderr, "Error: login response did not include a token")
+		return 1
+	}
+	profile.Token = response.Token
+	cfg.Profiles[profileName] = profile
+	cfg.CurrentProfile = profileName
+	if err := config.Save(path, cfg); err != nil {
+		_, _ = fmt.Fprintln(stderr, "Error:", err)
+		return 1
+	}
+	_, _ = fmt.Fprintf(stdout, "Logged in to profile %q\n", profileName)
+	return 0
+}
+
 func runConfigureSet(args []string, stdout, stderr io.Writer) int {
 	profileName := "default"
 	urlValue := ""
@@ -467,6 +741,10 @@ func runConfigureSet(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	client := flatrun.New(urlValue, token, 30*time.Second, false)
+	health, healthErr := client.Health(context.Background())
+	agentVersion := agentVersionFromHealth(health)
+
 	path := config.DefaultPath()
 	cfg, err := config.Load(path)
 	if err != nil {
@@ -480,7 +758,52 @@ func runConfigureSet(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "Saved profile %q\n", profileName)
+	if agentVersion != "" {
+		_, _ = fmt.Fprintf(stdout, "Connected to FlatRun agent %s with CLI %s\n", agentVersion, Version)
+		if clientTrackNewer(Version, agentVersion) {
+			_, _ = fmt.Fprintf(stderr, "Warning: CLI %s is newer than agent %s. Update the agent before relying on newer commands.\n", Version, agentVersion)
+		}
+	} else if healthErr != nil {
+		_, _ = fmt.Fprintf(stderr, "Warning: profile saved, but the agent version could not be read: %v\n", healthErr)
+	}
 	return 0
+}
+
+func agentVersionFromHealth(data []byte) string {
+	var response struct {
+		Version json.RawMessage `json:"version"`
+	}
+	if json.Unmarshal(data, &response) != nil {
+		return ""
+	}
+	var version string
+	if json.Unmarshal(response.Version, &version) == nil {
+		return version
+	}
+	var details struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(response.Version, &details) == nil {
+		return details.Version
+	}
+	return ""
+}
+
+func clientTrackNewer(clientVersion, agentVersion string) bool {
+	parse := func(value string) (int, int, bool) {
+		value = strings.TrimPrefix(value, "v")
+		var major, minor int
+		if _, err := fmt.Sscanf(value, "%d.%d", &major, &minor); err != nil {
+			return 0, 0, false
+		}
+		return major, minor, true
+	}
+	clientMajor, clientMinor, clientOK := parse(clientVersion)
+	agentMajor, agentMinor, agentOK := parse(agentVersion)
+	if !clientOK || !agentOK {
+		return false
+	}
+	return clientMajor > agentMajor || clientMajor == agentMajor && clientMinor > agentMinor
 }
 
 func runConfigureList(args []string, stdout, stderr io.Writer) int {
@@ -610,6 +933,11 @@ func runHealth(args []string, stdout, stderr io.Writer) int {
 func runDeployment(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return listEndpoints(stdout, stderr, "deployment", false)
+	}
+	if len(args) > 1 && shapedCommand("deployment", args[0]) {
+		if args[1] == "--generate-cli-skeleton" {
+			return runEndpoint("deployments", args, stdout, stderr)
+		}
 	}
 
 	switch args[0] {
@@ -949,7 +1277,12 @@ func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	data, err = client.UpdateDeploymentCompose(context.Background(), deploymentName, updated)
+	variable := composeImageVariable(oldImage)
+	if variable != "" {
+		data, err = updateDeploymentImageVariable(context.Background(), client, deploymentName, variable, imageName)
+	} else {
+		data, err = client.UpdateDeploymentCompose(context.Background(), deploymentName, updated)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
@@ -979,6 +1312,52 @@ func runDeploymentImageSet(args []string, stdout, stderr io.Writer) int {
 		printResponse(stdout, false, data, "Deployment completed")
 	}
 	return 0
+}
+
+func composeImageVariable(image string) string {
+	if !strings.HasPrefix(image, "${") || !strings.HasSuffix(image, "}") {
+		return ""
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(image, "${"), "}")
+	if before, _, found := strings.Cut(name, ":-"); found {
+		name = before
+	}
+	if name == "" {
+		return ""
+	}
+	for i, r := range name {
+		letter := r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z'
+		digit := i > 0 && r >= '0' && r <= '9'
+		if !letter && !digit {
+			return ""
+		}
+	}
+	return name
+}
+
+func updateDeploymentImageVariable(ctx context.Context, client *flatrun.Client, deployment, variable, image string) ([]byte, error) {
+	data, err := client.GetDeploymentEnv(ctx, deployment)
+	if err != nil {
+		return nil, err
+	}
+	var response struct {
+		EnvVars []flatrun.EnvVar `json:"env_vars"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, err
+	}
+	found := false
+	for i := range response.EnvVars {
+		if response.EnvVars[i].Key == variable {
+			response.EnvVars[i].Value = image
+			found = true
+			break
+		}
+	}
+	if !found {
+		response.EnvVars = append(response.EnvVars, flatrun.EnvVar{Key: variable, Value: image})
+	}
+	return client.UpdateDeploymentEnv(ctx, deployment, response.EnvVars)
 }
 
 func runDeploymentCreate(args []string, stdout, stderr io.Writer) int {
@@ -1374,24 +1753,25 @@ func printResponse(stdout io.Writer, rawJSON bool, data []byte, fallback string)
 		_, _ = fmt.Fprintln(stdout, string(data))
 		return
 	}
+	view := presentation.New(stdout)
 	var response map[string]any
 	if err := json.Unmarshal(data, &response); err != nil {
 		if fallback == "" {
 			_, _ = fmt.Fprintln(stdout, string(data))
 			return
 		}
-		_, _ = fmt.Fprintln(stdout, fallback)
+		_, _ = fmt.Fprintln(stdout, view.Success(fallback))
 		return
 	}
 	if message, ok := response["message"].(string); ok && strings.TrimSpace(message) != "" {
-		_, _ = fmt.Fprintln(stdout, message)
+		_, _ = fmt.Fprintln(stdout, view.Success(message))
 		return
 	}
 	if status, ok := response["status"].(string); ok && strings.TrimSpace(status) != "" && fallback != "" {
-		_, _ = fmt.Fprintf(stdout, "%s: %s\n", fallback, status)
+		_, _ = fmt.Fprintf(stdout, "%s: %s\n", view.Success(fallback), view.Status(status))
 		return
 	}
-	_, _ = fmt.Fprintln(stdout, fallback)
+	_, _ = fmt.Fprintln(stdout, view.Success(fallback))
 }
 
 func renderDeploymentList(stdout io.Writer, data []byte) error {
@@ -1783,12 +2163,7 @@ func databaseSummary(deployment deploymentInfo) string {
 }
 
 func writeTable(stdout io.Writer, headers []string, tableRows [][]string) {
-	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
-	for _, row := range tableRows {
-		_, _ = fmt.Fprintln(tw, strings.Join(row, "\t"))
-	}
-	_ = tw.Flush()
+	presentation.New(stdout).Table(stdout, headers, tableRows)
 }
 
 func boolText(value bool) string {

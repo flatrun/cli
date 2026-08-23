@@ -11,7 +11,7 @@ import collections
 import json
 import sys
 
-WRITE_VERB = {"POST": "create", "PUT": "update", "PATCH": "update", "DELETE": "delete"}
+WRITE_VERB = {"POST": "create", "PUT": "update", "PATCH": "patch", "DELETE": "delete"}
 
 # Reached by the agent's own components, not by an operator.
 SKIP_PREFIXES = ("/api/internal", "/api/_internal", "/api/security/events/ingest", "/api/traffic/ingest")

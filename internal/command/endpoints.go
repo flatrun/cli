@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/flatrun/cli/internal/flatrun"
+	"github.com/flatrun/cli/internal/presentation"
 	"github.com/flatrun/cli/internal/spec"
 )
 
@@ -159,19 +160,23 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 	fields := fieldValues{}
 	query := queryValues{}
 	dataArg := ""
+	generateSkeleton := false
+	planOnly := false
 	var api *spec.Spec
 	var operation spec.Operation
 	described := false
 
 	cmd := clientCommand{
 		name:        family + " " + e.op,
-		usage:       "Usage: " + e.command() + " [-f name=value] [--data JSON] [-q name=value]",
+		usage:       "Usage: " + e.command() + " [-f name=value] [--data JSON] [-q name=value] [--plan] [--generate-cli-skeleton]",
 		positionals: len(e.args),
 		valueFlags:  []string{"data", "f", "q"},
 		flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&dataArg, "data", "", "JSON request body, or @file to read one")
 			fs.Var(fields, "f", "Request body field as name=value, repeatable")
 			fs.Var(query, "q", "Query parameter as name=value, repeatable")
+			fs.BoolVar(&planOnly, "plan", false, "Preview the operation without applying it")
+			fs.BoolVar(&generateSkeleton, "generate-cli-skeleton", false, "Print a request body template")
 		},
 		run: func(ctx context.Context, client *flatrun.Client, positional []string) ([]byte, error) {
 			path, err := e.resolvePath(positional)
@@ -191,6 +196,18 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 					}
 				}
 			}
+			if generateSkeleton {
+				if !described {
+					return nil, fmt.Errorf("this agent does not describe the request body")
+				}
+				return json.MarshalIndent(api.Skeleton(operation), "", "  ")
+			}
+			if planOnly {
+				if !described || !operation.PlanSupported {
+					return nil, fmt.Errorf("this operation does not support plan mode")
+				}
+				url.Values(query).Set("plan", "true")
+			}
 
 			if len(query) > 0 {
 				path += "?" + url.Values(query).Encode()
@@ -207,6 +224,10 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 			return client.Do(ctx, e.method, path, payload)
 		},
 		render: func(w io.Writer, data []byte) error {
+			if generateSkeleton {
+				printResponse(w, true, data, "")
+				return nil
+			}
 			if renderAnswer(w, api, operation, data) {
 				return nil
 			}
@@ -215,6 +236,15 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 		},
 	}
 	return runClientCommand(cmd, args[1:], stdout, stderr)
+}
+
+func usesGenericEndpointFlags(args []string) bool {
+	for _, arg := range args {
+		if arg == "--data" || strings.HasPrefix(arg, "--data=") || arg == "-f" || strings.HasPrefix(arg, "-f=") || arg == "-q" || strings.HasPrefix(arg, "-q=") || arg == "--plan" || arg == "--generate-cli-skeleton" {
+			return true
+		}
+	}
+	return false
 }
 
 // runAliasedEndpoint reaches a plural family's endpoint from its singular name, so the two are
@@ -339,17 +369,28 @@ func listEndpoints(stdout, stderr io.Writer, family string, asJSON bool) int {
 		return 0
 	}
 
+	view := presentation.New(stdout)
 	current := ""
+	rows := [][]string{}
+	flush := func() {
+		if current == "" {
+			return
+		}
+		_, _ = fmt.Fprintln(stdout, view.Heading(current))
+		view.Table(stdout, []string{"OPERATION", "METHOD", "PATH"}, rows)
+	}
 	for _, e := range list {
 		if e.family != current {
+			flush()
 			if current != "" {
 				_, _ = fmt.Fprintln(stdout)
 			}
 			current = e.family
-			_, _ = fmt.Fprintln(stdout, e.family)
+			rows = nil
 		}
-		_, _ = fmt.Fprintf(stdout, "  %-38s %s %s\n", strings.TrimSpace(e.op+" "+argNames(e)+" "+e.flags), e.method, e.path)
+		rows = append(rows, []string{strings.TrimSpace(e.op + " " + argNames(e) + " " + e.flags), e.method, e.path})
 	}
+	flush()
 	_, _ = fmt.Fprintln(stdout)
 	_, _ = fmt.Fprintln(stdout, "Send a body with -f name=value (repeatable) or --data JSON.")
 	return 0

@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/flatrun/cli/internal/presentation"
 	"github.com/flatrun/cli/internal/spec"
 )
 
@@ -120,26 +121,37 @@ func distance(a, b string) int {
 }
 
 func describeEndpoint(w io.Writer, api *spec.Spec, e endpoint, op spec.Operation) {
-	_, _ = fmt.Fprintln(w, invocation(e))
+	view := presentation.New(w)
+	_, _ = fmt.Fprintln(w, view.Title(invocation(e)))
 	if op.Permission != "" {
-		_, _ = fmt.Fprintf(w, "Needs %s\n", op.Permission)
+		_, _ = fmt.Fprintf(w, "%s %s\n", view.Muted("Permission:"), op.Permission)
+	}
+	if op.PlanSupported {
+		_, _ = fmt.Fprintln(w, view.Success("Supports --plan to preview every change before applying it."))
 	}
 
 	if fields := api.Fields(op); len(fields) > 0 {
-		_, _ = fmt.Fprintln(w, "\nFields, given as -f name=value:")
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(w, "\n"+view.Heading("Request fields"))
+		rows := make([][]string, 0, len(fields))
 		for _, field := range fields {
 			required := ""
 			if field.Required {
 				required = "required"
 			}
-			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", field.Name, field.Type, required, field.Help)
+			help := field.Help
+			if len(field.Accepted) > 0 {
+				help = "Accepted: " + strings.Join(field.Accepted, ", ")
+			}
+			rows = append(rows, []string{field.Name, field.Type, required, help})
 		}
-		_ = tw.Flush()
+		presentation.New(w).Table(w, []string{"FIELD", "TYPE", "REQUIRED", "DETAILS"}, rows)
 	}
 
 	if query := api.QueryParams(op); len(query) > 0 {
-		_, _ = fmt.Fprintf(w, "\nQuery parameters, given as -q name=value:\n  %s\n", strings.Join(query, ", "))
+		_, _ = fmt.Fprintf(w, "\n%s\n  %s\n", view.Heading("Query parameters (-q name=value)"), strings.Join(query, ", "))
+	}
+	if len(api.Fields(op)) > 0 {
+		_, _ = fmt.Fprintln(w, "\n"+view.Muted("Print a request template with --generate-cli-skeleton."))
 	}
 }
 

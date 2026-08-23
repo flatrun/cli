@@ -99,6 +99,19 @@ func (c *Client) UpdateDeploymentCompose(ctx context.Context, name, composeConte
 	})
 }
 
+type EnvVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func (c *Client) GetDeploymentEnv(ctx context.Context, name string) ([]byte, error) {
+	return c.Do(ctx, http.MethodGet, "/deployments/"+url.PathEscape(name)+"/env", nil)
+}
+
+func (c *Client) UpdateDeploymentEnv(ctx context.Context, name string, envVars []EnvVar) ([]byte, error) {
+	return c.Do(ctx, http.MethodPut, "/deployments/"+url.PathEscape(name)+"/env", map[string]any{"env_vars": envVars})
+}
+
 type DeployRequest struct {
 	Action     string `json:"action"`
 	Pull       bool   `json:"pull"`

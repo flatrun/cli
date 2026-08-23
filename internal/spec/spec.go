@@ -33,7 +33,65 @@ type Operation struct {
 			Schema *Schema `json:"schema"`
 		} `json:"content"`
 	} `json:"responses"`
-	Permission string `json:"x-permission"`
+	Permission    string `json:"x-permission"`
+	PlanSupported bool   `json:"x-plan-supported"`
+}
+
+func (s *Spec) Skeleton(op Operation) map[string]any {
+	result := map[string]any{}
+	if op.RequestBody == nil {
+		return result
+	}
+	content, ok := op.RequestBody.Content["application/json"]
+	if !ok {
+		return result
+	}
+	schema := s.Resolve(content.Schema)
+	if schema == nil {
+		return result
+	}
+	for _, field := range s.Fields(op) {
+		result[field.Name] = s.skeletonValue(schema.Properties[field.Name], map[*Schema]bool{schema: true})
+	}
+	return result
+}
+
+func (s *Spec) skeletonValue(schema *Schema, visiting map[*Schema]bool) any {
+	schema = s.Resolve(schema)
+	if schema == nil {
+		return nil
+	}
+	if visiting[schema] {
+		return nil
+	}
+	visiting[schema] = true
+	defer delete(visiting, schema)
+	if len(schema.Enum) > 0 {
+		return schema.Enum[0]
+	}
+	switch schema.Type {
+	case "boolean":
+		return false
+	case "integer", "number":
+		return 0
+	case "array":
+		item := s.Resolve(schema.Items)
+		if item != nil && (item.Type == "object" || len(item.Properties) > 0) {
+			if visiting[item] {
+				return []any{}
+			}
+			return []any{s.skeletonValue(item, visiting)}
+		}
+		return []any{}
+	case "object":
+		value := map[string]any{}
+		for name, property := range schema.Properties {
+			value[name] = s.skeletonValue(property, visiting)
+		}
+		return value
+	default:
+		return ""
+	}
 }
 
 type Parameter struct {
@@ -62,6 +120,7 @@ type Schema struct {
 	Required             []string           `json:"required"`
 	Description          string             `json:"description"`
 	AdditionalProperties *Schema            `json:"additionalProperties"`
+	Enum                 []any              `json:"enum"`
 }
 
 func Parse(raw []byte) (*Spec, error) {
@@ -108,6 +167,7 @@ type Field struct {
 	Type     string
 	Required bool
 	Help     string
+	Accepted []string
 }
 
 // Fields are an endpoint's body fields in declaration order, so help reads the way the type does.
@@ -148,9 +208,25 @@ func (s *Spec) Fields(op Operation) []Field {
 			Type:     typeName(property),
 			Required: required[name],
 			Help:     property.Description,
+			Accepted: enumStrings(property.Enum),
 		})
 	}
 	return fields
+}
+
+func enumStrings(values []any) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			result = append(result, text)
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err == nil {
+			result = append(result, string(encoded))
+		}
+	}
+	return result
 }
 
 func typeName(schema *Schema) string {

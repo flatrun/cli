@@ -13,7 +13,43 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/flatrun/cli/internal/flatrun"
 )
+
+func TestLandingPageShowsHowToGetOperationHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run(nil, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, text := range []string{"Start here:", "flatrun resources", "deployments create --help"} {
+		if !strings.Contains(stdout.String(), text) {
+			t.Fatalf("landing page missing %q:\n%s", text, stdout.String())
+		}
+	}
+}
+
+func TestResourcesPageGroupsTheCommandSurface(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"resources"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, text := range []string{"Applications", "Infrastructure", "Operations", "Access and security", "Platform", "deployments", "notifications"} {
+		if !strings.Contains(stdout.String(), text) {
+			t.Fatalf("resources page missing %q", text)
+		}
+	}
+}
+
+func TestCobraGeneratesShellCompletion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"completion", "bash"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "__start_flatrun") {
+		t.Fatalf("completion output is incomplete")
+	}
+}
 
 func TestDeploymentFilesPushSendsOneArchiveRequest(t *testing.T) {
 	source := t.TempDir()
@@ -116,6 +152,97 @@ func TestConfigureSetAndList(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "* prod\thttps://panel.example.com") {
 		t.Fatalf("unexpected list output: %s", stdout.String())
+	}
+}
+
+func TestProfileCommandsManageCurrentProfile(t *testing.T) {
+	t.Setenv("FLATRUN_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	var stdout, stderr bytes.Buffer
+
+	if code := Run([]string{"profile", "add", "--profile", "local", "--url", "https://local.example", "--token", "secret"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("profile add code=%d stderr=%s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"profile", "current"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("profile current code=%d stderr=%s", code, stderr.String())
+	}
+	if got := stdout.String(); got != "local\thttps://local.example\n" {
+		t.Fatalf("profile current output = %q", got)
+	}
+}
+
+func TestAuthLoginStoresSessionTokenForProfile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			_, _ = w.Write([]byte(`{"agent":"flatrun","status":"healthy","version":{"version":"0.4.0-beta.7"}}`))
+		case "/api/auth/login":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["username"] != "admin" || body["password"] != " correct-password " {
+				t.Fatalf("login body = %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"token":"session-token","expires_in":86400,"token_type":"Bearer"}`))
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("FLATRUN_CONFIG", configPath)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"profile", "add", "--profile", "local", "--url", server.URL, "--token", "bootstrap"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("profile add code=%d stderr=%s", code, stderr.String())
+	}
+	previousStdin := stdin
+	previousTerminal := stdinIsTerminal
+	stdin = strings.NewReader(" correct-password \r\n")
+	stdinIsTerminal = func() bool { return false }
+	t.Cleanup(func() {
+		stdin = previousStdin
+		stdinIsTerminal = previousTerminal
+	})
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"auth", "login", "--profile", "local", "--username", "admin", "--password-stdin"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("auth login code=%d stderr=%s", code, stderr.String())
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"token": "session-token"`) {
+		t.Fatalf("saved config = %s", data)
+	}
+}
+
+func TestConfigureSetReportsAgentAndClientVersions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/health" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"status":"healthy","agent":"flatrun","version":"0.3.9"}`))
+	}))
+	defer server.Close()
+	t.Setenv("FLATRUN_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	previousVersion := Version
+	Version = "0.4.0"
+	t.Cleanup(func() { Version = previousVersion })
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"configure", "set", "--url", server.URL, "--token", "secret"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Connected to FlatRun agent 0.3.9 with CLI 0.4.0") {
+		t.Fatalf("stdout = %s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "CLI 0.4.0 is newer than agent 0.3.9") {
+		t.Fatalf("stderr = %s", stderr.String())
 	}
 }
 
@@ -356,7 +483,7 @@ func TestHelpShowsResourceCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
-	for _, want := range []string{"deployment", "image", "container", "api"} {
+	for _, want := range []string{"profile current", "health", "deployments list", "resources"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout.String())
 		}
@@ -863,6 +990,43 @@ func TestDeploymentImageSetCanDeployAfterUpdate(t *testing.T) {
 	}
 	if deployPayload["action"] != "restart" || deployPayload["pull"] != true {
 		t.Fatalf("deploy payload = %+v", deployPayload)
+	}
+}
+
+func TestDeploymentImageSetUpdatesReferencedEnvironmentVariable(t *testing.T) {
+	requests := []string{}
+	var envPayload struct {
+		EnvVars []flatrun.EnvVar `json:"env_vars"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api/compose":
+			_, _ = w.Write([]byte(`{"content":"services:\n  app:\n    image: ${ENTERPRISE_IMAGE}\n"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/deployments/api/env":
+			_, _ = w.Write([]byte(`{"env_vars":[{"key":"ENTERPRISE_IMAGE","value":"ghcr.io/acme/api:old"},{"key":"OTHER","value":"keep"}]}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/deployments/api/env":
+			if err := json.NewDecoder(r.Body).Decode(&envPayload); err != nil {
+				t.Fatalf("decode environment payload: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"message":"Environment variables updated"}`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"deployment", "image", "set", "api", "app", "ghcr.io/acme/api:new"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Join(requests, "\n") != "GET /api/deployments/api/compose\nGET /api/deployments/api/env\nPUT /api/deployments/api/env" {
+		t.Fatalf("requests = %#v", requests)
+	}
+	if len(envPayload.EnvVars) != 2 || envPayload.EnvVars[0].Value != "ghcr.io/acme/api:new" || envPayload.EnvVars[1].Value != "keep" {
+		t.Fatalf("environment payload = %#v", envPayload.EnvVars)
 	}
 }
 
