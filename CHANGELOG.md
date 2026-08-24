@@ -2,7 +2,7 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
-## [0.5.0] - 2026-08-24
+## [0.4.1] - 2026-08-25
 
 ### Added
 
