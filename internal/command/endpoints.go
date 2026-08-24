@@ -171,6 +171,12 @@ func runEndpoint(family string, args []string, stdout, stderr io.Writer) int {
 		usage:       "Usage: " + e.command() + " [-f name=value] [--data JSON] [-q name=value] [--plan] [--generate-cli-skeleton]",
 		positionals: len(e.args),
 		valueFlags:  []string{"data", "f", "q"},
+		progressFor: func() string {
+			if e.method == "GET" || generateSkeleton || planOnly {
+				return ""
+			}
+			return "Running " + strings.ReplaceAll(e.op, "-", " ")
+		},
 		flags: func(fs *flag.FlagSet) {
 			fs.StringVar(&dataArg, "data", "", "JSON request body, or @file to read one")
 			fs.Var(fields, "f", "Request body field as name=value, repeatable")

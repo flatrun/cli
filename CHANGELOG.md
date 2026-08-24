@@ -2,6 +2,23 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
+## [0.5.0] - 2026-08-24
+
+### Added
+
+- Interactive server setup and login with masked token and password input
+- Terminal confirmation before deleting a deployment
+- Live progress for deployment, image, container, upload, backup, restore, and other write operations
+- French, Spanish, Brazilian Portuguese, and Simplified Chinese introductions
+
+### Fixed
+
+- A profile name can appear before connection flags in `profile add`, as shown in command examples
+
+### Changed
+
+- Interactive presentation is disabled for redirected output and JSON responses
+
 ## [0.4.0] - 2026-08-23
 
 ### Added

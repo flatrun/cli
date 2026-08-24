@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flatrun/cli/internal/config"
 	"github.com/flatrun/cli/internal/flatrun"
 )
 
@@ -194,6 +195,46 @@ func TestProfileCommandsManageCurrentProfile(t *testing.T) {
 	}
 }
 
+func TestProfileAddPromptsForMissingConnectionFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/health" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"status":"healthy","version":"0.4.0"}`))
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("FLATRUN_CONFIG", configPath)
+	previousTerminal := stdinIsTerminal
+	previousPrompt := promptProfileSetup
+	stdinIsTerminal = func() bool { return true }
+	promptProfileSetup = func(_ io.Writer, profile, urlValue, token *string) error {
+		if *profile != "local" {
+			t.Fatalf("profile = %q", *profile)
+		}
+		*urlValue = server.URL
+		*token = "bootstrap-token"
+		return nil
+	}
+	t.Cleanup(func() {
+		stdinIsTerminal = previousTerminal
+		promptProfileSetup = previousPrompt
+	})
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"profile", "add", "local"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CurrentProfile != "local" || cfg.Profiles["local"].URL != server.URL || cfg.Profiles["local"].Token != "bootstrap-token" {
+		t.Fatalf("config = %#v", cfg)
+	}
+}
+
 func TestAuthLoginStoresSessionTokenForProfile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -239,6 +280,52 @@ func TestAuthLoginStoresSessionTokenForProfile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"token": "session-token"`) {
 		t.Fatalf("saved config = %s", data)
+	}
+}
+
+func TestAuthLoginPromptsOnTerminal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			_, _ = w.Write([]byte(`{"status":"healthy"}`))
+		case "/api/auth/login":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["username"] != "operator" || body["password"] != "correct-password" {
+				t.Fatalf("body = %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"token":"session-token"}`))
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("FLATRUN_CONFIG", configPath)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"profile", "add", "local", "--url", server.URL, "--token", "bootstrap"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("profile add code=%d stderr=%s", code, stderr.String())
+	}
+
+	previousTerminal := stdinIsTerminal
+	previousPrompt := promptLoginCredentials
+	stdinIsTerminal = func() bool { return true }
+	promptLoginCredentials = func(_ io.Writer, username, password *string) error {
+		*username = "operator"
+		*password = "correct-password"
+		return nil
+	}
+	t.Cleanup(func() {
+		stdinIsTerminal = previousTerminal
+		promptLoginCredentials = previousPrompt
+	})
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"auth", "login", "--profile", "local"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("auth login code=%d stderr=%s", code, stderr.String())
 	}
 }
 
@@ -582,6 +669,31 @@ func TestDeploymentDeleteRequiresConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "refusing to delete") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
+func TestDeploymentDeleteCanBeCancelledInteractively(t *testing.T) {
+	previousInteractive := interactiveSession
+	previousPrompt := promptDeploymentDelete
+	interactiveSession = func(io.Writer, bool) bool { return true }
+	promptDeploymentDelete = func(_ io.Writer, name string) (bool, error) {
+		if name != "prod" {
+			t.Fatalf("name = %q", name)
+		}
+		return false, nil
+	}
+	t.Cleanup(func() {
+		interactiveSession = previousInteractive
+		promptDeploymentDelete = previousPrompt
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"deployment", "delete", "prod"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Deletion cancelled") {
+		t.Fatalf("stderr = %s", stderr.String())
 	}
 }
 

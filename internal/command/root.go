@@ -56,6 +56,8 @@ type clientCommand struct {
 	name        string
 	usage       string
 	successMsg  string
+	progress    string
+	progressFor func() string
 	positionals int
 	valueFlags  []string
 	flags       func(*flag.FlagSet)
@@ -559,7 +561,15 @@ func runClientCommand(cmd clientCommand, args []string, stdout, stderr io.Writer
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
-	data, err := cmd.run(context.Background(), client, fs.Args())
+	ctx := context.Background()
+	var data []byte
+	progress := cmd.progress
+	if cmd.progressFor != nil {
+		progress = cmd.progressFor()
+	}
+	data, err = runOperation(ctx, stderr, opts.JSON, progress, func(ctx context.Context) ([]byte, error) {
+		return cmd.run(ctx, client, fs.Args())
+	})
 	if err != nil {
 		if output := apiErrorOutput(err); output != "" {
 			_, _ = fmt.Fprintln(stderr, output)
@@ -672,18 +682,32 @@ func runAuthLogin(args []string, stdout, stderr io.Writer) int {
 	if code, ok := parseFlagSet(fs, args); !ok {
 		return code
 	}
-	if passwordStdin == apiKeyStdin || (passwordStdin && username == "") || (apiKeyStdin && username != "") {
+	interactive := stdinIsTerminal() && !passwordStdin && !apiKeyStdin
+	if !interactive && (passwordStdin == apiKeyStdin || (passwordStdin && username == "") || (apiKeyStdin && username != "")) {
 		_, _ = fmt.Fprintln(stderr, "Usage: flatrun auth login [--profile PROFILE] (--username USERNAME --password-stdin | --api-key-stdin)")
 		return 2
 	}
-	if stdinIsTerminal() {
+	if !interactive && stdinIsTerminal() {
 		_, _ = fmt.Fprintln(stderr, "Error: --password-stdin requires piped input")
 		return 2
 	}
-	credential, err := io.ReadAll(stdin)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "Error:", err)
-		return 1
+	credential := ""
+	if interactive {
+		if err := promptLoginCredentials(stderr, &username, &credential); err != nil {
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
+			return 1
+		}
+		if username == "" || credential == "" {
+			_, _ = fmt.Fprintln(stderr, "Error: username and password are required")
+			return 2
+		}
+	} else {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
+			return 1
+		}
+		credential = strings.TrimRight(string(data), "\r\n")
 	}
 
 	path := config.DefaultPath()
@@ -704,10 +728,10 @@ func runAuthLogin(args []string, stdout, stderr io.Writer) int {
 	client := flatrun.New(profile.URL, "", 30*time.Second, false)
 	body := map[string]string{}
 	if apiKeyStdin {
-		body["api_key"] = strings.TrimRight(string(credential), "\r\n")
+		body["api_key"] = credential
 	} else {
 		body["username"] = username
-		body["password"] = strings.TrimRight(string(credential), "\r\n")
+		body["password"] = credential
 	}
 	data, err := client.Raw(context.Background(), http.MethodPost, "/auth/login", body)
 	if err != nil {
@@ -744,8 +768,15 @@ func runConfigureSet(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&urlValue, "url", "", "FlatRun API URL")
 	fs.StringVar(&token, "token", "", "FlatRun API token")
 	fs.BoolVar(&tokenStdin, "token-stdin", false, "Read FlatRun API token from stdin")
-	if code, ok := parseFlagSet(fs, args); !ok {
+	if code, ok := parseFlagSet(fs, interspersedFlags(args, globalValueFlags("profile", "url", "token"))); !ok {
 		return code
+	}
+	if fs.NArg() > 1 {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun profile add [NAME] [--url URL] [--token TOKEN]")
+		return 2
+	}
+	if fs.NArg() == 1 {
+		profileName = fs.Arg(0)
 	}
 	if tokenStdin {
 		if token != "" {
@@ -762,6 +793,16 @@ func runConfigureSet(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		token = strings.TrimSpace(string(data))
+	}
+	if stdinIsTerminal() && (urlValue == "" || token == "") {
+		if err := promptProfileSetup(stderr, &profileName, &urlValue, &token); err != nil {
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
+			return 1
+		}
+	}
+	if profileName == "" {
+		_, _ = fmt.Fprintln(stderr, "Error: profile name is required")
+		return 2
 	}
 	if urlValue == "" {
 		_, _ = fmt.Fprintln(stderr, "Error: --url is required")
@@ -1016,6 +1057,7 @@ func runDeploymentFiles(args []string, stdout, stderr io.Writer) int {
 	return runClientCommand(clientCommand{
 		name:        "deployment files push",
 		usage:       "Usage: flatrun deployment files push DEPLOYMENT SOURCE DESTINATION [--delete]",
+		progress:    "Uploading folder contents",
 		positionals: 3,
 		flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&deleteMissing, "delete", false, "Delete destination files missing from the source")
@@ -1067,6 +1109,7 @@ func runDeploymentAction(args []string, stdout, stderr io.Writer) int {
 		name:        "deployment action",
 		usage:       "Usage: flatrun deployment action NAME ACTION_ID",
 		successMsg:  "Action executed",
+		progress:    "Running deployment action",
 		positionals: 2,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ExecuteQuickAction(ctx, args[0], args[1])
@@ -1437,7 +1480,9 @@ func runDeploymentCreate(args []string, stdout, stderr io.Writer) int {
 		req.ContainerPort = 0
 	}
 
-	data, err := client.CreateDeployment(context.Background(), req)
+	data, err := runOperation(context.Background(), stderr, opts.JSON, "Creating deployment", func(ctx context.Context) ([]byte, error) {
+		return client.CreateDeployment(ctx, req)
+	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 1
@@ -1468,8 +1513,19 @@ func runDeploymentDelete(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if !yes && confirm != fs.Arg(0) {
-		_, _ = fmt.Fprintf(stderr, "Error: refusing to delete %q without --yes or --confirm %s\n", fs.Arg(0), fs.Arg(0))
-		return 2
+		if !interactiveSession(stderr, opts.JSON) {
+			_, _ = fmt.Fprintf(stderr, "Error: refusing to delete %q without --yes or --confirm %s\n", fs.Arg(0), fs.Arg(0))
+			return 2
+		}
+		confirmed, err := promptDeploymentDelete(stderr, fs.Arg(0))
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "Error:", err)
+			return 1
+		}
+		if !confirmed {
+			_, _ = fmt.Fprintln(stderr, "Deletion cancelled")
+			return 0
+		}
 	}
 
 	client, err := clientFromOptions(opts)
@@ -1477,10 +1533,12 @@ func runDeploymentDelete(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
-	data, err := client.DeleteDeployment(context.Background(), fs.Arg(0), flatrun.DeleteDeploymentOptions{
-		DeleteSSL:      deleteSSL,
-		DeleteDatabase: deleteDatabase,
-		DeleteVhost:    deleteVhost,
+	data, err := runOperation(context.Background(), stderr, opts.JSON, "Deleting deployment", func(ctx context.Context) ([]byte, error) {
+		return client.DeleteDeployment(ctx, fs.Arg(0), flatrun.DeleteDeploymentOptions{
+			DeleteSSL:      deleteSSL,
+			DeleteDatabase: deleteDatabase,
+			DeleteVhost:    deleteVhost,
+		})
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
@@ -1495,6 +1553,7 @@ func runDeploymentSimple(operation string, args []string, stdout, stderr io.Writ
 		name:        "deployment " + operation,
 		usage:       fmt.Sprintf("Usage: flatrun deployment %s NAME", operation),
 		successMsg:  "Deployment " + operation + " completed",
+		progress:    "Updating deployment",
 		positionals: 1,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.Manage(ctx, args[0], operation)
@@ -1508,6 +1567,7 @@ func runDeploymentPull(args []string, stdout, stderr io.Writer) int {
 		name:        "deployment pull",
 		usage:       "Usage: flatrun deployment pull NAME",
 		successMsg:  "Images pulled",
+		progress:    "Pulling deployment images",
 		positionals: 1,
 		flags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&onlyLatest, "only-latest", onlyLatest, "Only pull images tagged latest")
@@ -1573,10 +1633,12 @@ func runDeploymentDeploy(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
 		return 2
 	}
-	data, err := client.Deploy(context.Background(), fs.Arg(0), flatrun.DeployRequest{
-		Action:     operation,
-		Pull:       pull,
-		OnlyLatest: onlyLatest,
+	data, err := runOperation(context.Background(), stderr, opts.JSON, "Deploying application", func(ctx context.Context) ([]byte, error) {
+		return client.Deploy(ctx, fs.Arg(0), flatrun.DeployRequest{
+			Action:     operation,
+			Pull:       pull,
+			OnlyLatest: onlyLatest,
+		})
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "Error:", err)
@@ -1625,6 +1687,7 @@ func runImagePull(args []string, stdout, stderr io.Writer) int {
 		name:        "image pull",
 		usage:       "Usage: flatrun image pull IMAGE",
 		successMsg:  "Image pulled",
+		progress:    "Pulling image",
 		positionals: 1,
 		valueFlags:  []string{"credential-id"},
 		flags: func(fs *flag.FlagSet) {
@@ -1688,6 +1751,7 @@ func runContainerSimple(operation string, args []string, stdout, stderr io.Write
 		name:        "container " + operation,
 		usage:       fmt.Sprintf("Usage: flatrun container %s CONTAINER_ID", operation),
 		successMsg:  "Container " + operation + " completed",
+		progress:    "Updating container",
 		positionals: 1,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.ContainerOperation(ctx, args[0], operation)
@@ -1700,6 +1764,7 @@ func runContainerDelete(args []string, stdout, stderr io.Writer) int {
 		name:        "container delete",
 		usage:       "Usage: flatrun container delete CONTAINER_ID",
 		successMsg:  "Container deleted",
+		progress:    "Deleting container",
 		positionals: 1,
 		run: func(ctx context.Context, client *flatrun.Client, args []string) ([]byte, error) {
 			return client.RemoveContainer(ctx, args[0])
