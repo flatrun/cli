@@ -1,5 +1,7 @@
 # FlatRun CLI
 
+English | [Français](README.fr.md) | [Español](README.es.md) | [Português do Brasil](README.pt-BR.md) | [简体中文](README.zh-CN.md)
+
 ## Operate every FlatRun server from one terminal
 
 `flatrun` deploys and manages Docker applications through the same API as the
@@ -29,6 +31,10 @@ flatrun profile add production \
 flatrun profile use production
 flatrun health
 ```
+
+When run in a terminal, `profile add` prompts for missing connection fields and
+stores the token without echoing it. `auth login` prompts for a username and a
+masked password. Flags and standard input remain available for scripts and CI.
 
 Create and inspect an application:
 
@@ -133,6 +139,11 @@ Config is stored at `~/.flatrun/config.json` by default. Use `FLATRUN_CONFIG` to
 ## Terminal output
 
 Human-readable output uses terminal-aware colors and tables. Colors are disabled automatically when output is piped or redirected. Set `NO_COLOR=1` to disable them explicitly. `--json` always returns unstyled machine-readable output.
+
+Long-running writes show a single live progress line in a terminal. Redirected
+output and `--json` never start an interactive renderer. Destructive deployment
+deletion asks for confirmation in a terminal; automation must continue to use
+`--yes` or `--confirm NAME`.
 
 Generate completion for a supported shell:
 
