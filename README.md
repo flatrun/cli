@@ -1,6 +1,16 @@
 # FlatRun CLI
 
-`flatrun` is the command-line interface for FlatRun. It is intended to be the automation and operator surface for FlatRun in the same way cloud CLIs wrap a larger platform API.
+## Operate every FlatRun server from one terminal
+
+`flatrun` deploys and manages Docker applications through the same API as the
+FlatRun dashboard. It gives operators readable commands and gives automation
+stable JSON, without introducing a second deployment format.
+
+Use it to inspect a plan before applying it, manage deployments and
+infrastructure, run commands inside containers, push folder contents, follow
+jobs, and switch between independent FlatRun servers.
+
+## Start with a server
 
 ## Install
 
@@ -9,6 +19,49 @@ Install the latest release on Linux or macOS:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flatrun/cli/main/scripts/install.sh | sudo sh
 ```
+
+Connect a server and verify it:
+
+```bash
+flatrun profile add production \
+  --url https://panel.example.com \
+  --token your-api-key-here
+flatrun profile use production
+flatrun health
+```
+
+Create and inspect an application:
+
+```bash
+flatrun deployment create my-api \
+  --image ghcr.io/acme/api:main \
+  --port 8080 \
+  --host-port 18080
+flatrun deployment info my-api
+```
+
+Before a destructive operation, ask the connected agent for its plan:
+
+```bash
+flatrun deployments delete my-api --plan
+```
+
+The connected agent supplies operation help, accepted request fields, and
+request skeletons:
+
+```bash
+flatrun deployments create --help
+flatrun deployments create --generate-cli-skeleton
+```
+
+## Why the CLI exists
+
+The dashboard is useful for exploration. The CLI makes the same work
+repeatable from a terminal, a script, or CI. Generated resource commands keep
+the complete agent API available while shaped commands make common deployment
+work easier to read and remember.
+
+## Install details
 
 The installer detects amd64 or arm64, verifies the published SHA-256 checksum, and installs
 `flatrun` in `/usr/local/bin`. Pin a release with `FLATRUN_VERSION`, or choose another destination
