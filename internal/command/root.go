@@ -339,7 +339,7 @@ func runLegacy(args []string, stdout, stderr io.Writer) int {
 func usage(w io.Writer) {
 	view := presentation.New(w)
 	_, _ = fmt.Fprintln(w, view.Title("FlatRun"))
-	_, _ = fmt.Fprintln(w, view.Muted("Run Docker applications across your servers."))
+	_, _ = fmt.Fprintln(w, view.Muted("Manage deployments and infrastructure from one terminal."))
 	_, _ = fmt.Fprintln(w)
 	if name, url, ok := landingProfile(); ok {
 		_, _ = fmt.Fprintln(w, view.Heading("Active server"))
