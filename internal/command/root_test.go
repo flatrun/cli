@@ -18,14 +18,36 @@ import (
 )
 
 func TestLandingPageShowsHowToGetOperationHelp(t *testing.T) {
+	t.Setenv("FLATRUN_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 	var stdout, stderr bytes.Buffer
 	if code := Run(nil, &stdout, &stderr); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
-	for _, text := range []string{"Start here:", "flatrun resources", "deployments create --help"} {
+	for _, text := range []string{"No server is connected.", "Get started", "flatrun profile add", "deployments create --help"} {
 		if !strings.Contains(stdout.String(), text) {
 			t.Fatalf("landing page missing %q:\n%s", text, stdout.String())
 		}
+	}
+}
+
+func TestLandingPageShowsActiveServer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("FLATRUN_CONFIG", path)
+	if err := os.WriteFile(path, []byte(`{"current_profile":"prod1","profiles":{"prod1":{"url":"https://panel.example.com","token":"secret"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run(nil, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	for _, text := range []string{"Active server", "prod1", "https://panel.example.com", "Common tasks", "deployment info NAME"} {
+		if !strings.Contains(stdout.String(), text) {
+			t.Fatalf("landing page missing %q:\n%s", text, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "secret") {
+		t.Fatal("landing page exposed the profile token")
 	}
 }
 
@@ -476,6 +498,7 @@ func TestNormalizeAPIPath(t *testing.T) {
 }
 
 func TestHelpShowsResourceCommands(t *testing.T) {
+	t.Setenv("FLATRUN_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -483,7 +506,7 @@ func TestHelpShowsResourceCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
-	for _, want := range []string{"profile current", "health", "deployments list", "resources"} {
+	for _, want := range []string{"profile add", "auth login", "resources", "deployments create --help"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("help missing %q:\n%s", want, stdout.String())
 		}

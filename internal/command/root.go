@@ -338,23 +338,54 @@ func runLegacy(args []string, stdout, stderr io.Writer) int {
 
 func usage(w io.Writer) {
 	view := presentation.New(w)
-	_, _ = fmt.Fprintln(w, view.Title("FlatRun CLI"))
-	_, _ = fmt.Fprintln(w, view.Muted("Manage deployments and infrastructure from one terminal."))
+	_, _ = fmt.Fprintln(w, view.Title("FlatRun"))
+	_, _ = fmt.Fprintln(w, view.Muted("Run Docker applications across your servers."))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, view.Heading("Usage:"))
-	_, _ = fmt.Fprintln(w, "  "+view.Command("flatrun RESOURCE OPERATION [ARGS] [options]"))
+	if name, url, ok := landingProfile(); ok {
+		_, _ = fmt.Fprintln(w, view.Heading("Active server"))
+		view.Table(w, []string{"PROFILE", "URL"}, [][]string{{name, url}})
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, view.Heading("Common tasks"))
+		view.Table(w, []string{"TASK", "COMMAND"}, [][]string{
+			{"Check the connection", "flatrun health"},
+			{"List deployments", "flatrun deployment list"},
+			{"Inspect a deployment", "flatrun deployment info NAME"},
+			{"Switch servers", "flatrun profile use NAME"},
+			{"Learn an operation", "flatrun deployments create --help"},
+		})
+	} else {
+		_, _ = fmt.Fprintln(w, view.Warning("No server is connected."))
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, view.Heading("Get started"))
+		view.Table(w, []string{"TASK", "COMMAND"}, [][]string{
+			{"Connect a server", "flatrun profile add NAME --url URL --token TOKEN"},
+			{"Sign in", "flatrun auth login --profile NAME --username USER"},
+			{"Explore all resources", "flatrun resources"},
+			{"Learn an operation", "flatrun deployments create --help"},
+		})
+	}
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, view.Heading("Start here:"))
-	view.Table(w, []string{"TASK", "COMMAND"}, [][]string{
-		{"Show the active server", "flatrun profile current"},
-		{"Check the connection", "flatrun health"},
-		{"List deployments", "flatrun deployments list"},
-		{"Explore all resources", "flatrun resources"},
-		{"Learn an operation", "flatrun deployments create --help"},
-		{"Check for CLI updates", "flatrun update --check"},
-	})
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, view.Muted("Use --json for machine-readable output. Singular and plural resource names both work."))
+	_, _ = fmt.Fprintln(w, view.Muted("Run `flatrun resources` for the complete API or add `--help` to learn an operation."))
+	_, _ = fmt.Fprintln(w, view.Muted("Use `--json` for machine-readable output."))
+}
+
+func landingProfile() (string, string, bool) {
+	if url := os.Getenv(config.EnvURL); url != "" {
+		name := os.Getenv(config.EnvProfile)
+		if name == "" {
+			name = "environment"
+		}
+		return name, url, true
+	}
+	cfg, err := config.Load(config.DefaultPath())
+	if err != nil || cfg.CurrentProfile == "" {
+		return "", "", false
+	}
+	profile, ok := cfg.Profiles[cfg.CurrentProfile]
+	if !ok || profile.URL == "" {
+		return "", "", false
+	}
+	return cfg.CurrentProfile, profile.URL, true
 }
 
 func resourceUsage(w io.Writer) {
