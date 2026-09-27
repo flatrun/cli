@@ -58,6 +58,65 @@ func (c *Client) PushDeploymentFiles(ctx context.Context, deployment, source, de
 	return data, nil
 }
 
+func (c *Client) PullDeploymentFile(ctx context.Context, deployment, source, destination string) ([]byte, error) {
+	apiBase := strings.TrimRight(c.baseURL, "/")
+	if !strings.HasSuffix(apiBase, "/api") {
+		apiBase += "/api"
+	}
+	path := "/deployments/" + url.PathEscape(deployment) + "/files/" + escapeFilePath(source)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if readErr != nil {
+			return nil, readErr
+		}
+		body := strings.TrimSpace(string(data))
+		return nil, &Error{StatusCode: resp.StatusCode, Body: body, Message: errorMessage(body)}
+	}
+	dir := filepath.Dir(destination)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(dir, ".flatrun-download-*")
+	if err != nil {
+		return nil, err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	written, err := io.Copy(tmp, resp.Body)
+	if err != nil {
+		_ = tmp.Close()
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmpName, destination); err != nil {
+		return nil, err
+	}
+	return []byte(fmt.Sprintf(`{"source":%q,"destination":%q,"bytes":%d}`, source, destination, written)), nil
+}
+
+func escapeFilePath(path string) string {
+	parts := strings.Split(strings.TrimPrefix(filepath.ToSlash(path), "/"), "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return strings.Join(parts, "/")
+}
+
 func writePushBody(multipartWriter *multipart.Writer, pipe *io.PipeWriter, source, destination string, deleteMissing bool) error {
 	fail := func(err error) error {
 		_ = pipe.CloseWithError(err)

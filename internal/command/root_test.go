@@ -133,6 +133,43 @@ func TestDeploymentFilesPushSendsOneArchiveRequest(t *testing.T) {
 	}
 }
 
+func TestDeploymentFilesPullWritesTheResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/deployments/shop/files/public/index.html" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte("home"))
+	}))
+	defer server.Close()
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+	destination := filepath.Join(t.TempDir(), "site", "index.html")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"deployment", "files", "pull", "shop", "public/index.html", destination}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil || string(content) != "home" {
+		t.Fatalf("downloaded content = %q err=%v", content, err)
+	}
+}
+
+func TestObservabilityUpdateUsesPluginConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/api/plugin/observability/config" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"enabled":true}`))
+	}))
+	defer server.Close()
+	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"observability", "update", "--data", `{"enabled":true}`}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
 func TestConfigureSetAndList(t *testing.T) {
 	t.Setenv("FLATRUN_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 

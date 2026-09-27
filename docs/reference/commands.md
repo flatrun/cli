@@ -94,6 +94,36 @@ flatrun deployment pull my-api
 flatrun deployment pull my-api --only-latest
 ```
 
+Transfer deployment files:
+
+```bash
+flatrun deployment files push my-api ./public public/ --delete
+flatrun deployment files pull my-api public/index.html ./index.html
+```
+
+Attach a database to an existing deployment:
+
+```bash
+flatrun deployment databases-attach my-api -f type=postgres -f mode=shared -f alias=primary
+```
+
+Track a migration and check DNS propagation:
+
+```bash
+flatrun deployment migration-update my-api --data @migration.json
+flatrun deployment migration-check-dns my-api
+flatrun deployment migration my-api
+```
+
+Manage observability without server access:
+
+```bash
+flatrun observability get
+flatrun observability update --data @observability.json
+flatrun observability alerts
+flatrun observability alerts-update --data @alert-rules.json
+```
+
 Run deployment operations:
 
 ```bash
