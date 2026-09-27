@@ -59,9 +59,31 @@ func (c *Client) PushDeploymentFiles(ctx context.Context, deployment, source, de
 }
 
 func (c *Client) PullDeploymentFile(ctx context.Context, deployment, source, destination string) ([]byte, error) {
-	data, err := c.Do(ctx, http.MethodGet, "/deployments/"+url.PathEscape(deployment)+"/files/"+escapeFilePath(source), nil)
+	apiBase := strings.TrimRight(c.baseURL, "/")
+	if !strings.HasSuffix(apiBase, "/api") {
+		apiBase += "/api"
+	}
+	path := "/deployments/" + url.PathEscape(deployment) + "/files/" + escapeFilePath(source)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
 	if err != nil {
 		return nil, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if readErr != nil {
+			return nil, readErr
+		}
+		body := strings.TrimSpace(string(data))
+		return nil, &Error{StatusCode: resp.StatusCode, Body: body, Message: errorMessage(body)}
 	}
 	dir := filepath.Dir(destination)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -73,7 +95,8 @@ func (c *Client) PullDeploymentFile(ctx context.Context, deployment, source, des
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
+	written, err := io.Copy(tmp, resp.Body)
+	if err != nil {
 		_ = tmp.Close()
 		return nil, err
 	}
@@ -83,7 +106,7 @@ func (c *Client) PullDeploymentFile(ctx context.Context, deployment, source, des
 	if err := os.Rename(tmpName, destination); err != nil {
 		return nil, err
 	}
-	return []byte(fmt.Sprintf(`{"source":%q,"destination":%q,"bytes":%d}`, source, destination, len(data))), nil
+	return []byte(fmt.Sprintf(`{"source":%q,"destination":%q,"bytes":%d}`, source, destination, written)), nil
 }
 
 func escapeFilePath(path string) string {
