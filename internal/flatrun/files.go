@@ -58,6 +58,42 @@ func (c *Client) PushDeploymentFiles(ctx context.Context, deployment, source, de
 	return data, nil
 }
 
+func (c *Client) PullDeploymentFile(ctx context.Context, deployment, source, destination string) ([]byte, error) {
+	data, err := c.Do(ctx, http.MethodGet, "/deployments/"+url.PathEscape(deployment)+"/files/"+escapeFilePath(source), nil)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Dir(destination)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(dir, ".flatrun-download-*")
+	if err != nil {
+		return nil, err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmpName, destination); err != nil {
+		return nil, err
+	}
+	return []byte(fmt.Sprintf(`{"source":%q,"destination":%q,"bytes":%d}`, source, destination, len(data))), nil
+}
+
+func escapeFilePath(path string) string {
+	parts := strings.Split(strings.TrimPrefix(filepath.ToSlash(path), "/"), "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return strings.Join(parts, "/")
+}
+
 func writePushBody(multipartWriter *multipart.Writer, pipe *io.PipeWriter, source, destination string, deleteMissing bool) error {
 	fail := func(err error) error {
 		_ = pipe.CloseWithError(err)

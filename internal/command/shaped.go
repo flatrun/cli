@@ -29,6 +29,7 @@ var shapedCommands = []endpoint{
 	{family: "deployment", op: "exec", method: "POST", path: "/deployments/:name/exec", args: []string{"name"}, flags: "[SERVICE] -- COMMAND"},
 	{family: "deployment", op: "image set", method: "PUT", path: "/deployments/:name/compose", args: []string{"name", "service", "image"}, flags: "--deploy --operation"},
 	{family: "deployment", op: "files push", method: "POST", path: "/deployments/:name/files-push", args: []string{"name", "source", "destination"}, flags: "--delete"},
+	{family: "deployment", op: "files pull", method: "GET", path: "/deployments/:name/files/*path", args: []string{"name", "source", "destination"}},
 
 	{family: "image", op: "list", method: "GET", path: "/images"},
 	{family: "image", op: "pull", method: "POST", path: "/images/pull", args: []string{"image"}, flags: "--credential-id"},
@@ -40,6 +41,10 @@ var shapedCommands = []endpoint{
 	{family: "container", op: "restart", method: "POST", path: "/containers/:id/restart", args: []string{"id"}},
 	{family: "container", op: "exec", method: "POST", path: "/containers/:id/exec", args: []string{"id"}, flags: "-- COMMAND"},
 	{family: "container", op: "delete", method: "DELETE", path: "/containers/:id", args: []string{"id"}},
+	{family: "observability", op: "get", method: "GET", path: "/plugin/observability/config"},
+	{family: "observability", op: "update", method: "PUT", path: "/plugin/observability/config", flags: "--data JSON"},
+	{family: "observability", op: "alerts", method: "GET", path: "/plugin/observability/alerts/rules"},
+	{family: "observability", op: "alerts-update", method: "PUT", path: "/plugin/observability/alerts/rules", flags: "--data JSON"},
 }
 
 // catalogue is every command the CLI can run: the hand-shaped ones and the generated ones. The

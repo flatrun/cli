@@ -218,7 +218,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	names = append(names, "profile", "configure", "health", "deployment", "image", "container", "api", "version", "update")
+	names = append(names, "profile", "configure", "health", "deployment", "image", "container", "observability", "api", "version", "update")
 	seen := map[string]bool{}
 	for _, name := range names {
 		if seen[name] {
@@ -307,6 +307,8 @@ func runLegacy(args []string, stdout, stderr io.Writer) int {
 		return runImage(args[1:], stdout, stderr)
 	case "container":
 		return runContainer(args[1:], stdout, stderr)
+	case "observability":
+		return runObservability(args[1:], stdout, stderr)
 	case "api":
 		return runAPI(args[1:], stdout, stderr)
 	default:
@@ -334,6 +336,29 @@ func runLegacy(args []string, stdout, stderr io.Writer) int {
 		}
 		return runEndpoint(family, args[1:], stdout, stderr)
 	}
+}
+
+func runObservability(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun observability (get|update|alerts|alerts-update) [--data JSON]")
+		return 2
+	}
+	method := "get"
+	path := "/plugin/observability/config"
+	switch args[0] {
+	case "get":
+	case "update":
+		method = "put"
+	case "alerts":
+		path = "/plugin/observability/alerts/rules"
+	case "alerts-update":
+		method = "put"
+		path = "/plugin/observability/alerts/rules"
+	default:
+		_, _ = fmt.Fprintf(stderr, "Unknown observability command: %s\n", args[0])
+		return 2
+	}
+	return runAPI(append([]string{method, path}, args[1:]...), stdout, stderr)
 }
 
 func usage(w io.Writer) {
@@ -977,9 +1002,17 @@ func runDeployment(args []string, stdout, stderr io.Writer) int {
 }
 
 func runDeploymentFiles(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "push" {
-		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment files push DEPLOYMENT SOURCE DESTINATION [--delete]")
+	if len(args) == 0 || (args[0] != "push" && args[0] != "pull") {
+		_, _ = fmt.Fprintln(stderr, "Usage: flatrun deployment files (push|pull) DEPLOYMENT SOURCE DESTINATION")
 		return 2
+	}
+	if args[0] == "pull" {
+		return runClientCommand(clientCommand{
+			name: "deployment files pull", usage: "Usage: flatrun deployment files pull DEPLOYMENT SOURCE DESTINATION", positionals: 3,
+			run: func(ctx context.Context, client *flatrun.Client, values []string) ([]byte, error) {
+				return client.PullDeploymentFile(ctx, values[0], values[1], values[2])
+			},
+		}, args[1:], stdout, stderr)
 	}
 	deleteMissing := false
 	return runClientCommand(clientCommand{
