@@ -163,6 +163,7 @@ func TestObservabilityUpdateUsesPluginConfig(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("FLATRUN_URL", server.URL)
+	t.Setenv("FLATRUN_TOKEN", "secret")
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"observability", "update", "--data", `{"enabled":true}`}, &stdout, &stderr); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
