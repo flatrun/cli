@@ -2,6 +2,18 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
+## [0.5.0] - 2026-09-28
+
+### Added
+
+- Download deployment files to a local path with atomic replacement
+- Manage observability configuration and alert rules through the CLI
+- Generated commands for migration tracking, backup policy, cleanup, destination selection, and database attachment
+
+### Changed
+
+- Deployment downloads stream directly to disk so large files keep memory use bounded
+
 ## [0.4.0] - 2026-08-23
 
 ### Added
