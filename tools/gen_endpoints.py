@@ -20,6 +20,13 @@ SKIP_PREFIXES = ("/api/internal", "/api/_internal", "/api/security/events/ingest
 SKIP_PATHS = ("/api/openapi.json",)
 
 
+def deployment_path(path):
+    """Agents that name deployments projects serve both paths; older ones serve only this one."""
+    if path == "/projects" or path.startswith("/projects/"):
+        return "/deployments" + path[len("/projects"):]
+    return path
+
+
 def endpoints(spec):
     for path, methods in spec["paths"].items():
         if path.startswith(SKIP_PREFIXES) or path in SKIP_PATHS:
@@ -29,7 +36,7 @@ def endpoints(spec):
             yield {
                 "method": method.upper(),
                 # The CLI holds paths as the router writes them, without the /api the client adds.
-                "path": path[len("/api"):],
+                "path": deployment_path(path[len("/api"):]),
                 "args": [p["name"] for p in params],
                 "rest": {p["name"] for p in params if p.get("x-rest-of-path")},
             }

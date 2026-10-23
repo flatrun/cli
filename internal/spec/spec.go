@@ -146,9 +146,16 @@ func (s *Spec) Resolve(schema *Schema) *Schema {
 }
 
 // Operation takes the path as the CLI holds it, `/deployments/:name`, not as the spec writes it.
+// An agent that calls deployments projects describes them under the project path only.
 func (s *Spec) Operation(method, path string) (Operation, bool) {
-	op, ok := s.Paths[specPath(path)][strings.ToLower(method)]
-	return op, ok
+	if op, ok := s.Paths[specPath(path)][strings.ToLower(method)]; ok {
+		return op, true
+	}
+	if rest, ok := strings.CutPrefix(path, "/deployments"); ok && (rest == "" || strings.HasPrefix(rest, "/")) {
+		op, ok := s.Paths[specPath("/projects"+rest)][strings.ToLower(method)]
+		return op, ok
+	}
+	return Operation{}, false
 }
 
 func specPath(path string) string {
