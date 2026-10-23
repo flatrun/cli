@@ -83,3 +83,19 @@ func TestProjectsIsAnotherNameForDeployments(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectDeploymentsListDeployHistory(t *testing.T) {
+	isolateCache(t)
+	server, got := projectsServer(t)
+
+	code, _, stderr := runCLI(t, server, "project", "deployments", "shop", "--json")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if got.method != http.MethodGet || got.path != "/api/deployments/shop/deployments" {
+		t.Fatalf("called %s %s", got.method, got.path)
+	}
+	if code, _, stderr := runCLI(t, server, "project", "deployments-logs", "shop", "d1", "--json"); code != 0 || got.path != "/api/deployments/shop/deployments/d1/logs" {
+		t.Fatalf("logs: code=%d path=%s stderr=%s", code, got.path, stderr)
+	}
+}
