@@ -107,6 +107,8 @@ flatrun deployment create my-api \
   --host-port 18080
 ```
 
+The FlatRun UI calls a deployment a project, so `project` and `projects` work anywhere `deployment` and `deployments` do: `flatrun project list` and `flatrun deployment list` are the same command.
+
 Manage an existing deployment:
 
 ```bash

@@ -219,6 +219,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	names = append(names, "profile", "configure", "health", "deployment", "image", "container", "observability", "api", "version", "update")
+	for renamed := range renamedFamilies {
+		names = append(names, renamed)
+	}
 	seen := map[string]bool{}
 	for _, name := range names {
 		if seen[name] {
@@ -278,6 +281,9 @@ func runLegacy(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stdout)
 		return 0
+	}
+	if family, ok := renamedFamilies[args[0]]; ok {
+		args = append([]string{family}, args[1:]...)
 	}
 
 	switch args[0] {

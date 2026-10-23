@@ -73,6 +73,13 @@ func catalogue() []endpoint {
 	return all
 }
 
+// renamedFamilies are newer names for a family. The commands keep calling the family's own
+// paths, which every agent serves.
+var renamedFamilies = map[string]string{
+	"project":  "deployment",
+	"projects": "deployments",
+}
+
 // shapedAlias maps a generated family onto the singular name the hand-shaped commands use.
 var shapedAlias = map[string]string{
 	"deployments": "deployment",

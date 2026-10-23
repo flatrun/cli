@@ -2,6 +2,18 @@
 
 All notable changes to the FlatRun CLI are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `project` and `projects` as names for the deployment commands
+- `project deployments` lists a project's deploy history, with logs and rollback
+- Commands for workspace logos and the newer agent endpoints
+
+### Changed
+
+- Commands keep explaining their fields and refusing unknown ones against agents that describe deployments as projects
+
 ## [0.5.0] - 2026-09-28
 
 ### Added
