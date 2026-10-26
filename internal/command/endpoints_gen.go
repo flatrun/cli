@@ -212,6 +212,7 @@ var generatedEndpoints = []endpoint{
 	{family: "deployments", op: "services-restart", method: "POST", path: "/deployments/:name/services/:service/restart", args: []string{"name", "service"}},
 	{family: "deployments", op: "services-settings", method: "GET", path: "/deployments/:name/services/:service/settings", args: []string{"name", "service"}},
 	{family: "deployments", op: "services-settings-update", method: "PUT", path: "/deployments/:name/services/:service/settings", args: []string{"name", "service"}},
+	{family: "deployments", op: "services-sleep", method: "PUT", path: "/deployments/:name/services/:service/sleep", args: []string{"name", "service"}},
 	{family: "deployments", op: "services-start", method: "POST", path: "/deployments/:name/services/:service/start", args: []string{"name", "service"}},
 	{family: "deployments", op: "services-stop", method: "POST", path: "/deployments/:name/services/:service/stop", args: []string{"name", "service"}},
 	{family: "deployments", op: "serving", method: "GET", path: "/deployments/:name/serving", args: []string{"name"}},
